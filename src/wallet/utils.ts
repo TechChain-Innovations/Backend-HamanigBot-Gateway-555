@@ -1,3 +1,5 @@
+import path from 'path';
+
 import { FastifyInstance } from 'fastify';
 import fse from 'fs-extra';
 
@@ -5,6 +7,7 @@ import { Ethereum } from '../chains/ethereum/ethereum';
 import { Solana } from '../chains/solana/solana';
 import { updateDefaultWallet } from '../config/utils';
 import { ConfigManagerCertPassphrase } from '../services/config-manager-cert-passphrase';
+import { ConfigManagerV2 } from '../services/config-manager-v2';
 import {
   getInitializedChain,
   UnsupportedChainException,
@@ -23,6 +26,17 @@ import {
 } from './schemas';
 
 export const walletPath = './conf/wallets';
+
+function getDefaultWalletPlaceholder(chain: string): string {
+  switch (chain.toLowerCase()) {
+    case 'solana':
+      return '<solana-wallet-address>';
+    case 'ethereum':
+      return '<ethereum-wallet-address>';
+    default:
+      return '';
+  }
+}
 
 // Utility to sanitize file paths and prevent path traversal attacks
 export function sanitizePathComponent(input: string): string {
@@ -171,6 +185,52 @@ export async function removeWallet(fastify: FastifyInstance, req: RemoveWalletRe
       throw fastify.httpErrors.badRequest(error.message);
     }
     throw fastify.httpErrors.internalServerError(`Failed to remove wallet: ${error.message}`);
+  }
+}
+
+export async function removeAllWalletsForChain(
+  fastify: FastifyInstance,
+  chain: string,
+): Promise<{ removedWallets: number; hardwareCleared: boolean }> {
+  logger.info(`Removing all wallets for chain: ${chain}`);
+
+  if (!validateChainName(chain)) {
+    throw fastify.httpErrors.badRequest(`Unrecognized chain name: ${chain}`);
+  }
+
+  const safeChain = sanitizePathComponent(chain.toLowerCase());
+  const chainWalletPath = path.join(walletPath, safeChain);
+
+  try {
+    await mkdirIfDoesNotExist(chainWalletPath);
+
+    const entries = await fse.readdir(chainWalletPath, { withFileTypes: true });
+    let removedWallets = 0;
+    let hardwareCleared = false;
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) {
+        continue;
+      }
+
+      const filePath = path.join(chainWalletPath, entry.name);
+      await fse.remove(filePath);
+
+      if (entry.name === 'hardware-wallets.json') {
+        hardwareCleared = true;
+      } else {
+        removedWallets += 1;
+      }
+    }
+
+    const placeholder = getDefaultWalletPlaceholder(chain);
+    const configValue = placeholder || '';
+    ConfigManagerV2.getInstance().set(`${safeChain}.defaultWallet`, configValue);
+
+    return { removedWallets, hardwareCleared };
+  } catch (error) {
+    logger.error(`Failed to remove wallets for ${chain}: ${error.message}`);
+    throw fastify.httpErrors.internalServerError(`Failed to remove wallets for ${chain}: ${error.message}`);
   }
 }
 

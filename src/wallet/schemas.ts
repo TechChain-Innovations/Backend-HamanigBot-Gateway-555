@@ -65,6 +65,30 @@ export const RemoveWalletResponseSchema = Type.Object({
   }),
 });
 
+export const RemoveAllWalletsRequestSchema = Type.Object({
+  chain: Type.String({
+    description: 'Blockchain to remove all wallets from',
+    enum: ['ethereum', 'solana'],
+    examples: ['solana', 'ethereum'],
+  }),
+});
+
+export const RemoveAllWalletsResponseSchema = Type.Object({
+  message: Type.String({
+    description: 'Summary of purge operation',
+  }),
+  chain: Type.String({
+    description: 'Chain name',
+  }),
+  removedWallets: Type.Number({
+    description: 'Number of software wallets removed',
+    minimum: 0,
+  }),
+  hardwareCleared: Type.Boolean({
+    description: 'Indicates whether hardware wallet registry was cleared',
+  }),
+});
+
 export const SignMessageRequestSchema = Type.Object({
   chain: Type.String(),
   network: Type.String(),
@@ -164,6 +188,8 @@ export type AddWalletRequest = Static<typeof AddWalletRequestSchema>;
 export type AddWalletResponse = Static<typeof AddWalletResponseSchema>;
 export type RemoveWalletRequest = Static<typeof RemoveWalletRequestSchema>;
 export type RemoveWalletResponse = Static<typeof RemoveWalletResponseSchema>;
+export type RemoveAllWalletsRequest = Static<typeof RemoveAllWalletsRequestSchema>;
+export type RemoveAllWalletsResponse = Static<typeof RemoveAllWalletsResponseSchema>;
 export type SignMessageRequest = Static<typeof SignMessageRequestSchema>;
 export type SignMessageResponse = Static<typeof SignMessageResponseSchema>;
 export type GetWalletResponse = Static<typeof GetWalletResponseSchema>;
