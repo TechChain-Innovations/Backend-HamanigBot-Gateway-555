@@ -16,6 +16,9 @@ import { logger } from '../../../services/logger';
 import { sanitizeErrorMessage } from '../../../services/sanitize';
 import { Raydium } from '../raydium';
 import { RaydiumAmmQuoteSwapRequest } from '../schemas';
+import { mapSwapError } from '../clmm-routes/executeSwap';
+import { formatSwapQuote as formatClmmSwapQuote, resolveClmmContext } from '../clmm-routes/quoteSwap';
+import { isValidClmm } from '../raydium.utils';
 
 async function quoteAmmSwap(
   raydium: Raydium,
@@ -506,9 +509,48 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      let errContext: {
+        poolAddress?: string;
+        tokenIn?: string;
+        tokenOut?: string;
+        amount?: number;
+        side?: string;
+      } = {};
       try {
         const { network, poolAddress, baseToken, quoteToken, amount, side, slippagePct } = request.query;
         const networkToUse = network;
+
+        errContext = {
+          poolAddress,
+          tokenIn: baseToken,
+          tokenOut: quoteToken,
+          amount,
+          side,
+        };
+
+        // If pool belongs to CLMM, reroute to CLMM quote handler so Raydium CLMM pools work even when poolType='amm'
+        if (poolAddress) {
+          const raydium = await Raydium.getInstance(networkToUse);
+          try {
+            const [poolInfo] = await raydium.getPoolfromAPI(poolAddress);
+            if (poolInfo && isValidClmm(poolInfo.programId)) {
+              logger.info(`Detected CLMM pool ${poolAddress} on AMM quote-swap, routing to CLMM handler`);
+              const ctx = await resolveClmmContext(fastify, networkToUse, poolAddress);
+              return await formatClmmSwapQuote(
+                fastify,
+                ctx.network,
+                baseToken,
+                quoteToken,
+                amount,
+                side as 'BUY' | 'SELL',
+                poolAddress,
+                slippagePct,
+              );
+            }
+          } catch (e) {
+            logger.warn(`Pool type detection failed for ${poolAddress}, falling back to AMM quote path: ${e.message}`);
+          }
+        }
 
         // Validate essential parameters
         if (!baseToken || !quoteToken || !amount || !side) {
@@ -552,6 +594,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
 
           poolAddressToUse = pool.address;
         }
+        errContext.poolAddress = poolAddressToUse;
 
         const result = await formatSwapQuote(
           fastify,
@@ -573,17 +616,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
 
         return result;
       } catch (e) {
-        logger.error(e);
-        if (e.statusCode) {
-          throw e;
-        }
-        if (e.message?.includes('Pool not found')) {
-          throw fastify.httpErrors.notFound(e.message);
-        }
-        if (e.message?.includes('Token not found')) {
-          throw fastify.httpErrors.badRequest(e.message);
-        }
-        throw fastify.httpErrors.internalServerError('Internal server error');
+        throw mapSwapError(fastify, e, errContext);
       }
     },
   );

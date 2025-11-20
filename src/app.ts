@@ -290,6 +290,49 @@ const configureGatewayServer = () => {
     app.register(pancakeswapRoutes.clmm, { prefix: '/connectors/pancakeswap/clmm' });
   };
 
+  // Lightweight request/response logging (always on, independent of fastifyLogs)
+  const MAX_BODY_LENGTH = 2048;
+  const trimPayload = (payload: unknown) => {
+    try {
+      const json = JSON.stringify(payload);
+      return json.length > MAX_BODY_LENGTH ? json.slice(0, MAX_BODY_LENGTH) + '…[truncated]' : json;
+    } catch {
+      return payload;
+    }
+  };
+
+  server.addHook('onRequest', async (request) => {
+    // mark start for latency measurement
+    (request as any)._start = process.hrtime.bigint();
+  });
+
+  server.addHook('preHandler', async (request) => {
+    logger.info('➡️  Request', {
+      id: request.id,
+      method: request.method,
+      url: request.url,
+      query: request.query,
+      body: trimPayload(request.body),
+      headers: {
+        // log minimal headers to avoid secrets
+        'content-type': request.headers['content-type'],
+        'user-agent': request.headers['user-agent'],
+      },
+    });
+  });
+
+  server.addHook('onResponse', async (request, reply) => {
+    const start = (request as any)._start as bigint | undefined;
+    const durationMs = start ? Number((process.hrtime.bigint() - start) / BigInt(1_000_000)) : undefined;
+    logger.info('⬅️  Response', {
+      id: request.id,
+      method: request.method,
+      url: request.url,
+      statusCode: reply.statusCode,
+      durationMs,
+    });
+  });
+
   // Register routes on main server
   registerRoutes(server);
   // Register routes on docs server (for OpenAPI generation) only if it exists
@@ -306,6 +349,15 @@ const configureGatewayServer = () => {
 
   // Global error handler
   server.setErrorHandler((error: ExtendedFastifyError, request, reply) => {
+    logger.error('❌ Request failed', {
+      id: request.id,
+      method: request.method,
+      url: request.url,
+      statusCode: error.statusCode,
+      message: error.message,
+      details: extractForwardableErrorDetails(error),
+    });
+
     // Handle validation errors
     if ('validation' in error && error.validation) {
       return reply.status(400).send({

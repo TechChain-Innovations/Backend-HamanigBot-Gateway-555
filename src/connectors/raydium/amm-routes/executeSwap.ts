@@ -11,6 +11,8 @@ import { RaydiumConfig } from '../raydium.config';
 import { RaydiumAmmExecuteSwapRequest } from '../schemas';
 
 import { getRawSwapQuote } from './quoteSwap';
+import { executeSwap as executeClmmSwap, mapSwapError } from '../clmm-routes/executeSwap';
+import { isValidClmm } from '../raydium.utils';
 
 async function executeSwap(
   fastify: FastifyInstance,
@@ -203,10 +205,66 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      let errContext: {
+        walletAddress?: string;
+        poolAddress?: string;
+        amount?: number;
+        side?: string;
+        tokenIn?: string;
+        tokenOut?: string;
+      } = {};
       try {
-        const { network, walletAddress, baseToken, quoteToken, amount, side, poolAddress, slippagePct } =
+        const {
+          network,
+          walletAddress,
+          baseToken,
+          quoteToken,
+          amount,
+          side,
+          poolAddress,
+          slippagePct,
+          useNativeSolBalance,
+        } =
           request.body as typeof RaydiumAmmExecuteSwapRequest._type;
         const networkToUse = network;
+
+        errContext = {
+          walletAddress,
+          poolAddress,
+          amount,
+          side,
+          tokenIn: baseToken,
+          tokenOut: quoteToken,
+        };
+
+        // If the supplied pool is actually a CLMM pool, transparently route to the CLMM handler
+        if (poolAddress) {
+          const raydium = await Raydium.getInstance(networkToUse);
+          try {
+          const [poolInfo] = await raydium.getPoolfromAPI(poolAddress);
+          if (poolInfo && isValidClmm(poolInfo.programId)) {
+            logger.info(`Detected CLMM pool ${poolAddress} on AMM execute-swap, routing to CLMM handler`);
+            return await executeClmmSwap(
+              fastify,
+              networkToUse,
+              walletAddress,
+              baseToken,
+              quoteToken,
+              amount,
+              side as 'BUY' | 'SELL',
+              poolAddress,
+              slippagePct,
+              useNativeSolBalance ?? false,
+            );
+          }
+        } catch (e) {
+          // If we already have a structured HTTP error, bubble it up instead of misclassifying the pool
+          if ((e as any)?.statusCode) {
+            throw e;
+          }
+            logger.warn(`Pool type detection failed for ${poolAddress}, falling back to AMM path: ${ (e as Error)?.message }`);
+          }
+        }
 
         // If no pool address provided, find default pool
         let poolAddressToUse = poolAddress;
@@ -244,6 +302,8 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           poolAddressToUse = pool.address;
         }
 
+        errContext.poolAddress = poolAddressToUse;
+
         return await executeSwap(
           fastify,
           networkToUse,
@@ -256,8 +316,7 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           slippagePct,
         );
       } catch (e) {
-        logger.error(e);
-        throw fastify.httpErrors.internalServerError('Swap execution failed');
+        throw mapSwapError(fastify, e, errContext);
       }
     },
   );

@@ -276,11 +276,38 @@ export class PoolService {
       } catch {
         throw new Error('Invalid Solana pool address');
       }
+      if (pool.baseAddress) {
+        try {
+          new PublicKey(pool.baseAddress);
+        } catch {
+          throw new Error('Invalid Solana base token address');
+        }
+      }
+      if (pool.quoteAddress) {
+        try {
+          new PublicKey(pool.quoteAddress);
+        } catch {
+          throw new Error('Invalid Solana quote token address');
+        }
+      }
     } else if (chain === SupportedChain.ETHEREUM) {
       // Validate Ethereum address
       if (!ethers.utils.isAddress(pool.address)) {
         throw new Error('Invalid Ethereum pool address');
       }
+      if (pool.baseAddress && !ethers.utils.isAddress(pool.baseAddress)) {
+        throw new Error('Invalid Ethereum base token address');
+      }
+      if (pool.quoteAddress && !ethers.utils.isAddress(pool.quoteAddress)) {
+        throw new Error('Invalid Ethereum quote token address');
+      }
+    }
+
+    if (pool.baseDecimals !== undefined && (pool.baseDecimals < 0 || pool.baseDecimals > 255)) {
+      throw new Error('baseDecimals must be between 0 and 255');
+    }
+    if (pool.quoteDecimals !== undefined && (pool.quoteDecimals < 0 || pool.quoteDecimals > 255)) {
+      throw new Error('quoteDecimals must be between 0 and 255');
     }
   }
 

@@ -9,6 +9,7 @@ import {
   PositionUtils,
   TickUtils,
   ClmmKeys,
+  CpmmKeys,
   TxVersion,
   AmmV4Keys,
   AmmV5Keys,
@@ -24,10 +25,21 @@ import { logger } from '../../services/logger';
 import { RaydiumConfig } from './raydium.config';
 import { isValidClmm, isValidAmm, isValidCpmm } from './raydium.utils';
 
+type RaydiumLoadParams = Parameters<typeof RaydiumSDK['load']>[0];
+type ExtendedRaydiumLoadParams = RaydiumLoadParams & {
+  // fetchToken exists in runtime implementation but missing from type definitions
+  fetchToken?: () => Promise<unknown[]>;
+};
+
 // Internal type that includes poolType for internal use
 interface InternalAmmPoolInfo extends AmmPoolInfo {
   poolType?: 'amm' | 'cpmm';
 }
+
+type PoolInfoResult = [
+  ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm | ApiV3PoolInfoConcentratedItem,
+  AmmV4Keys | AmmV5Keys | CpmmKeys | ClmmKeys | undefined,
+];
 
 export class Raydium {
   private static _instances: { [name: string]: Raydium };
@@ -41,6 +53,19 @@ export class Raydium {
     this.config = RaydiumConfig.config;
     this.solana = null;
     this.txVersion = TxVersion.V0;
+  }
+
+  private buildLoadParams(options: { owner?: Keypair }): ExtendedRaydiumLoadParams {
+    const owner = options.owner;
+    const raydiumCluster = this.solana.network == `mainnet-beta` ? 'mainnet' : 'devnet';
+    return {
+      connection: this.solana.connection,
+      cluster: raydiumCluster,
+      owner,
+      disableFeatureCheck: true,
+      blockhashCommitment: 'confirmed',
+      fetchToken: () => Promise.resolve([]),
+    };
   }
 
   /** Gets singleton instance of Raydium */
@@ -64,16 +89,9 @@ export class Raydium {
       this.solana = await Solana.getInstance(network);
 
       // Skip loading owner wallet - it will be provided in each operation
-      const raydiumCluster = this.solana.network == `mainnet-beta` ? 'mainnet' : 'devnet';
-
       // Initialize Raydium SDK with optional owner
-      this.raydiumSDK = await RaydiumSDK.load({
-        connection: this.solana.connection,
-        cluster: raydiumCluster,
-        owner: this.owner, // undefined if no wallet present
-        disableFeatureCheck: true,
-        blockhashCommitment: 'confirmed',
-      });
+      const loadParams = this.buildLoadParams({ owner: this.owner });
+      this.raydiumSDK = await RaydiumSDK.load(loadParams);
 
       logger.info('Raydium initialized with no default wallet');
     } catch (error) {
@@ -87,8 +105,6 @@ export class Raydium {
     // If it's a PublicKey (hardware wallet), we only set it for read operations
     // For transaction building, we'll use the public key but sign externally
     this.owner = owner as Keypair;
-    const raydiumCluster = this.solana.network == `mainnet-beta` ? 'mainnet' : 'devnet';
-
     // For hardware wallets (PublicKey), we need to create a dummy Keypair for SDK initialization
     // The SDK will use this for reading owner's positions, but we'll handle signing separately
     let sdkOwner: Keypair;
@@ -105,13 +121,8 @@ export class Raydium {
     }
 
     // Reinitialize SDK with the owner
-    this.raydiumSDK = await RaydiumSDK.load({
-      connection: this.solana.connection,
-      cluster: raydiumCluster,
-      owner: sdkOwner,
-      disableFeatureCheck: true,
-      blockhashCommitment: 'confirmed',
-    });
+    const loadParams = this.buildLoadParams({ owner: sdkOwner });
+    this.raydiumSDK = await RaydiumSDK.load(loadParams);
 
     logger.info('Raydium SDK reinitialized with owner');
   }
@@ -251,41 +262,84 @@ export class Raydium {
     }
   }
 
+  private async fetchPoolInfoFromRpc(poolAddress: string): Promise<PoolInfoResult | null> {
+    // Try standard AMM/Stable pools first
+    try {
+      const data = await this.raydiumSDK.liquidity.getPoolInfoFromRpc({ poolId: poolAddress });
+      if (data?.poolInfo) {
+        return [data.poolInfo as ApiV3PoolInfoStandardItem, data.poolKeys as AmmV4Keys | AmmV5Keys];
+      }
+    } catch (error) {
+      logger.debug(`Failed to fetch AMM pool info from RPC for ${poolAddress}: ${(error as Error)?.message}`);
+    }
+
+    // Try CPMM pools
+    try {
+      const data = await this.raydiumSDK.cpmm.getPoolInfoFromRpc(poolAddress);
+      if (data?.poolInfo) {
+        return [data.poolInfo as ApiV3PoolInfoStandardItemCpmm, data.poolKeys as CpmmKeys];
+      }
+    } catch (error) {
+      logger.debug(`Failed to fetch CPMM pool info from RPC for ${poolAddress}: ${(error as Error)?.message}`);
+    }
+
+    // Finally, try CLMM pools so AMM endpoints can detect and reroute
+    try {
+      const data = await this.raydiumSDK.clmm.getPoolInfoFromRpc(poolAddress);
+      if (data?.poolInfo) {
+        return [data.poolInfo as ApiV3PoolInfoConcentratedItem, data.poolKeys as ClmmKeys];
+      }
+    } catch (error) {
+      logger.debug(`Failed to fetch CLMM pool info from RPC for ${poolAddress}: ${(error as Error)?.message}`);
+    }
+
+    return null;
+  }
+
   // General Pool Methods
   async getPoolfromAPI(
     poolAddress: string,
-  ): Promise<[ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm, AmmV4Keys | AmmV5Keys] | null> {
-    try {
-      let poolInfo: ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm;
-      let poolKeys: AmmV4Keys | AmmV5Keys;
+  ): Promise<PoolInfoResult | null> {
+    let poolInfo: PoolInfoResult | null = null;
 
-      if (this.solana.network === 'mainnet-beta') {
+    if (this.solana.network === 'mainnet-beta') {
+      try {
         const data = await this.raydiumSDK.api.fetchPoolById({
           ids: poolAddress,
         });
-        poolInfo = data[0] as ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm;
-      } else {
-        const data = await this.raydiumSDK.liquidity.getPoolInfoFromRpc({
-          poolId: poolAddress,
-        });
-        poolInfo = data.poolInfo as ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm;
-        poolKeys = data.poolKeys as AmmV4Keys | AmmV5Keys;
-      }
+        const apiInfo = data?.[0];
 
-      if (!poolInfo) {
-        logger.error('Pool not found for address: ' + poolAddress);
-        return null;
+        if (apiInfo) {
+          poolInfo = [
+            apiInfo as ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm | ApiV3PoolInfoConcentratedItem,
+            undefined,
+          ];
+        } else {
+          logger.warn(`Raydium API returned no data for pool ${poolAddress}, falling back to RPC`);
+        }
+      } catch (error) {
+        logger.warn(`Raydium API fetchPoolById failed for ${poolAddress}, falling back to RPC: ${(error as Error)?.message}`);
       }
-
-      return [poolInfo, poolKeys];
-    } catch (error) {
-      logger.error(`Error getting AMM pool info from API for ${poolAddress}:`, error);
-      return null;
     }
+
+    if (!poolInfo) {
+      poolInfo = await this.fetchPoolInfoFromRpc(poolAddress);
+    }
+
+    if (!poolInfo) {
+      logger.error('Pool not found for address: ' + poolAddress);
+    }
+
+    return poolInfo;
   }
 
   async getPoolType(poolAddress: string): Promise<string> {
-    const [poolInfo] = await this.getPoolfromAPI(poolAddress);
+    const poolData = await this.getPoolfromAPI(poolAddress);
+    if (!poolData) {
+      logger.error(`Unable to determine pool type for ${poolAddress}`);
+      return null;
+    }
+    const [poolInfo] = poolData;
     if (isValidClmm(poolInfo.programId)) {
       return 'clmm';
     } else if (isValidAmm(poolInfo.programId)) {

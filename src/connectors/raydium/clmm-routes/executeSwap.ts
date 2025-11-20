@@ -11,9 +11,64 @@ import { Raydium } from '../raydium';
 import { RaydiumConfig } from '../raydium.config';
 import { RaydiumClmmExecuteSwapRequest, RaydiumClmmExecuteSwapRequestType } from '../schemas';
 
-import { getSwapQuote, convertAmountIn } from './quoteSwap';
+import { getSwapQuote, resolveClmmContext } from './quoteSwap';
 
-async function executeSwap(
+type ErrorContext = {
+  walletAddress?: string;
+  tokenIn?: string;
+  tokenOut?: string;
+  amount?: number;
+  side?: string;
+  poolAddress?: string;
+};
+
+const buildDetails = (error: any, context?: ErrorContext) => {
+  const details: Record<string, any> = {
+    ...(context || {}),
+    raw: error?.details || error?.cause || error?.message || error,
+  };
+  if (error?.stack) {
+    details.stack = error.stack;
+  }
+  return details;
+};
+
+export const mapSwapError = (fastify: FastifyInstance, error: any, context?: ErrorContext): any => {
+  const msg = (error?.message || '').toLowerCase();
+  const details = buildDetails(error, context);
+
+  // Common Solana / Raydium failure patterns
+  if (msg.includes('insufficient funds') || msg.includes('custom program error: 0x1')) {
+    const err = fastify.httpErrors.badRequest('Swap failed: insufficient funds');
+    (err as any).details = details;
+    return err;
+  }
+
+  if (msg.includes('slippage') || msg.includes('price limit') || msg.includes('liquidity')) {
+    const err = fastify.httpErrors.badRequest('Swap failed: slippage or liquidity too low');
+    (err as any).details = details;
+    return err;
+  }
+
+  if (msg.includes('blockhash') || msg.includes('expired')) {
+    const err = fastify.httpErrors.serviceUnavailable('Swap failed: transaction expired, try again');
+    (err as any).details = details;
+    return err;
+  }
+
+  if (msg.includes('pool not found')) {
+    const err = fastify.httpErrors.notFound('Swap failed: pool not found');
+    (err as any).details = details;
+    return err;
+  }
+
+  // default
+  const err = fastify.httpErrors.internalServerError('Swap execution failed');
+  (err as any).details = details;
+  return err;
+};
+
+export async function executeSwap(
   fastify: FastifyInstance,
   network: string,
   walletAddress: string,
@@ -23,31 +78,48 @@ async function executeSwap(
   side: 'BUY' | 'SELL',
   poolAddress: string,
   slippagePct?: number,
+  useNativeSolBalance: boolean = false,
 ): Promise<ExecuteSwapResponseType> {
-  const solana = await Solana.getInstance(network);
-  const raydium = await Raydium.getInstance(network);
+  const ctx = await resolveClmmContext(fastify, network, poolAddress);
+  const { solana, raydium, poolInfo: resolvedPoolInfo, poolKeys, network: networkToUse } = ctx;
 
   // Prepare wallet and check if it's hardware
   const { wallet, isHardwareWallet } = await raydium.prepareWallet(walletAddress);
 
   // Get pool info from address
-  const [poolInfo, poolKeys] = await raydium.getClmmPoolfromAPI(poolAddress);
-  if (!poolInfo) {
+  const poolInfo = resolvedPoolInfo ?? (await raydium.getClmmPoolfromAPI(poolAddress))?.[0];
+  let poolKeysToUse = poolKeys;
+
+  // For mainnet API calls poolKeys can be undefined; fetch from RPC as a fallback
+  if (!poolKeysToUse) {
+    try {
+      const rpcData = await raydium.raydiumSDK.clmm.getPoolInfoFromRpc(poolAddress);
+      poolKeysToUse = rpcData?.poolKeys;
+    } catch (e) {
+      logger.warn(`Failed to fetch CLMM pool keys from RPC for ${poolAddress}: ${e.message}`);
+    }
+  }
+
+  if (!poolInfo || !poolKeysToUse) {
     throw fastify.httpErrors.notFound(sanitizeErrorMessage('Pool not found: {}', poolAddress));
   }
 
-  // Use configured slippage if not provided
-  const effectiveSlippage = slippagePct || RaydiumConfig.config.slippagePct;
+  // Use configured slippage if not provided; keep explicit zero safe
+  const effectiveSlippage =
+    slippagePct === undefined || slippagePct === null
+      ? RaydiumConfig.config.slippagePct
+      : Number(slippagePct);
 
   const { inputToken, outputToken, response, clmmPoolInfo } = await getSwapQuote(
     fastify,
-    network,
+    networkToUse,
     baseToken,
     quoteToken,
     amount,
     side,
     poolAddress,
     effectiveSlippage,
+    ctx,
   );
 
   logger.info(`Raydium CLMM getSwapQuote:`, {
@@ -111,27 +183,26 @@ async function executeSwap(
   // Build transaction with SDK - pass parameters directly
   let transaction: VersionedTransaction;
   if (side === 'BUY') {
-    const exactOutResponse = response as ReturnTypeComputeAmountOutBaseOut;
-    const amountIn = convertAmountIn(
-      amount,
-      inputToken.decimals,
-      outputToken.decimals,
-      exactOutResponse.amountIn.amount,
+    const pseudo = response as ReturnTypeComputeAmountOutBaseOut;
+    const amountInRaw = pseudo.amountIn.amount;
+    const maxAmountInRaw = pseudo.maxAmountIn.amount;
+    const amountOutRaw = pseudo.realAmountOut.amount;
+    logger.debug(
+      `CLMM BUY swap | amountOut=${amount} ${outputToken.symbol} -> input=${inputToken.symbol} maxInRaw=${maxAmountInRaw.toString()}`,
     );
-    const amountInWithSlippage = amountIn * 10 ** inputToken.decimals * (1 + effectiveSlippage / 100);
-    // logger.info(`amountInWithSlippage: ${amountInWithSlippage}`);
+
     ({ transaction } = (await raydium.raydiumSDK.clmm.swapBaseOut({
       poolInfo,
-      poolKeys,
+      poolKeys: poolKeysToUse,
       outputMint: outputToken.address,
-      amountInMax: new BN(Math.floor(amountInWithSlippage)),
-      amountOut: exactOutResponse.realAmountOut.amount,
+      amountInMax: maxAmountInRaw,
+      amountOut: amountOutRaw,
       observationId: clmmPoolInfo.observationId,
       ownerInfo: {
-        useSOLBalance: true,
+        useSOLBalance: useNativeSolBalance,
       },
       txVersion: raydium.txVersion,
-      remainingAccounts: exactOutResponse.remainingAccounts,
+      remainingAccounts: pseudo.remainingAccounts ?? [],
       computeBudgetConfig: {
         units: COMPUTE_UNITS,
         microLamports: priorityFeePerCU,
@@ -141,13 +212,13 @@ async function executeSwap(
     const exactInResponse = response as ReturnTypeComputeAmountOutFormat;
     ({ transaction } = (await raydium.raydiumSDK.clmm.swap({
       poolInfo,
-      poolKeys,
+      poolKeys: poolKeysToUse,
       inputMint: inputToken.address,
       amountIn: exactInResponse.realAmountIn.amount.raw,
       amountOutMin: exactInResponse.minAmountOut.amount.raw,
       observationId: clmmPoolInfo.observationId,
       ownerInfo: {
-        useSOLBalance: true,
+        useSOLBalance: useNativeSolBalance,
       },
       remainingAccounts: exactInResponse.remainingAccounts,
       txVersion: raydium.txVersion,
@@ -207,9 +278,31 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      // context for structured error details
+      let errContext: ErrorContext = {};
+
       try {
-        const { network, walletAddress, baseToken, quoteToken, amount, side, poolAddress, slippagePct } = request.body;
+        const {
+          network,
+          walletAddress,
+          baseToken,
+          quoteToken,
+          amount,
+          side,
+          poolAddress,
+          slippagePct,
+          useNativeSolBalance,
+        } = request.body;
         const networkToUse = network;
+
+    errContext = {
+      walletAddress,
+      poolAddress,
+      amount,
+      side,
+      tokenIn: side === 'BUY' ? quoteToken : baseToken, // BUY spends quote, SELL spends base
+      tokenOut: side === 'BUY' ? baseToken : quoteToken,
+    };
 
         // If no pool address provided, find default pool
         let poolAddressToUse = poolAddress;
@@ -247,6 +340,8 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           poolAddressToUse = pool.address;
         }
 
+        errContext.poolAddress = poolAddressToUse;
+
         return await executeSwap(
           fastify,
           networkToUse,
@@ -257,13 +352,10 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           side as 'BUY' | 'SELL',
           poolAddressToUse,
           slippagePct,
+          useNativeSolBalance ?? false,
         );
       } catch (e) {
-        // Preserve the original error if it's a FastifyError
-        if (e.statusCode) {
-          throw e;
-        }
-        throw fastify.httpErrors.internalServerError('Failed to get swap quote');
+        throw mapSwapError(fastify, e, errContext);
       }
     },
   );

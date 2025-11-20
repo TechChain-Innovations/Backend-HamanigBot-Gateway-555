@@ -32,6 +32,10 @@ export const PoolListResponseSchema = Type.Array(
     baseSymbol: Type.String(),
     quoteSymbol: Type.String(),
     address: Type.String(),
+    baseAddress: Type.Optional(Type.String()),
+    quoteAddress: Type.Optional(Type.String()),
+    baseDecimals: Type.Optional(Type.Number()),
+    quoteDecimals: Type.Optional(Type.Number()),
   }),
 );
 
@@ -59,6 +63,30 @@ export const PoolAddRequestSchema = Type.Object({
   address: Type.String({
     description: 'Pool contract address',
   }),
+  baseAddress: Type.Optional(
+    Type.String({
+      description: 'Optional base token mint/contract address',
+    }),
+  ),
+  quoteAddress: Type.Optional(
+    Type.String({
+      description: 'Optional quote token mint/contract address',
+    }),
+  ),
+  baseDecimals: Type.Optional(
+    Type.Number({
+      description: 'Optional base token decimals',
+      minimum: 0,
+      maximum: 255,
+    }),
+  ),
+  quoteDecimals: Type.Optional(
+    Type.Number({
+      description: 'Optional quote token decimals',
+      minimum: 0,
+      maximum: 255,
+    }),
+  ),
 });
 
 // Success response

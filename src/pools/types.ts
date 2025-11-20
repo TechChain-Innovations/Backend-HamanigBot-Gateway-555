@@ -8,6 +8,10 @@ export interface Pool {
   baseSymbol: string;
   quoteSymbol: string;
   address: string;
+  baseAddress?: string;
+  quoteAddress?: string;
+  baseDecimals?: number;
+  quoteDecimals?: number;
 }
 
 export type PoolFileFormat = Pool[];
@@ -39,4 +43,8 @@ export interface PoolAddRequest {
   baseSymbol: string;
   quoteSymbol: string;
   address: string;
+  baseAddress?: string;
+  quoteAddress?: string;
+  baseDecimals?: number;
+  quoteDecimals?: number;
 }

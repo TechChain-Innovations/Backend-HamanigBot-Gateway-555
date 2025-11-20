@@ -7,6 +7,7 @@
  ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝
 ```
 node dist/index.js --passphrase\=12121212 --dev
+pnpm build && pnpm start --passphrase\=12121212 --dev
 pnpm start --passphrase\=12121212 --dev
 # Hummingbot Gateway
 

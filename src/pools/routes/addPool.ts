@@ -24,7 +24,18 @@ export const addPoolRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { connector, type, network, baseSymbol, quoteSymbol, address } = request.body;
+      const {
+        connector,
+        type,
+        network,
+        baseSymbol,
+        quoteSymbol,
+        address,
+        baseAddress,
+        quoteAddress,
+        baseDecimals,
+        quoteDecimals,
+      } = request.body;
 
       const poolService = PoolService.getInstance();
 
@@ -35,6 +46,10 @@ export const addPoolRoute: FastifyPluginAsync = async (fastify) => {
           baseSymbol,
           quoteSymbol,
           address,
+          baseAddress,
+          quoteAddress,
+          baseDecimals,
+          quoteDecimals,
         };
 
         // Check if pool already exists

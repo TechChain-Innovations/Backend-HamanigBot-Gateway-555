@@ -152,6 +152,13 @@ export const RaydiumAmmExecuteSwapRequest = Type.Object({
       examples: [RaydiumConfig.config.slippagePct],
     }),
   ),
+  useNativeSolBalance: Type.Optional(
+    Type.Boolean({
+      description:
+        'Set to true, якщо хочете дозволити автоматичне використання native SOL у CLMM-свопах (за замовчуванням false)',
+      default: false,
+    }),
+  ),
 });
 
 export const RaydiumAmmQuoteLiquidityRequest = Type.Object({
@@ -378,6 +385,13 @@ export const RaydiumClmmExecuteSwapRequest = Type.Object({
       description: 'Maximum acceptable slippage percentage',
       default: RaydiumConfig.config.slippagePct,
       examples: [RaydiumConfig.config.slippagePct],
+    }),
+  ),
+  useNativeSolBalance: Type.Optional(
+    Type.Boolean({
+      description:
+        'Якщо true, Raydium може автоматично обгортати native SOL; якщо false — буде використано лише наявний wSOL',
+      default: false,
     }),
   ),
 });

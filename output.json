@@ -1,0 +1,15 @@
+{
+  "statusCode": 400,
+  "error": "BadRequestError",
+  "message": "Swap failed: insufficient funds",
+  "details": {
+    "walletAddress": "HkkvaVWoVpSBeSpaRvKdoLvXDhox8LWrAhr2LKPVBWLZ",
+    "poolAddress": "EtGJNigeWeS5qimtWEqch2RhrQbRR5o5BoPX4txodvvC",
+    "amount": 0.0005,
+    "side": "BUY",
+    "tokenIn": "So11111111111111111111111111111111111111112",
+    "tokenOut": "BCos8JF8paBbnovnB3jZ7Ea79ZWaEsX1fhxvgNSU5ep6",
+    "raw": "Swap failed: Insufficient funds. Please check your token balance.",
+    "stack": "BadRequestError: Swap failed: Insufficient funds. Please check your token balance.\n    at Object.badRequest (/Users/serbinov/Desktop/projects/jamal/TMB-backend/hamming_bot_gateway/node_modules/.pnpm/@fastify+sensible@5.0.0/node_modules/@fastify/sensible/lib/httpErrors.js:21:12)\n    at Solana.simulateWithErrorHandling (/Users/serbinov/Desktop/projects/jamal/TMB-backend/hamming_bot_gateway/dist/chains/solana/solana.js:1198:42)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async executeSwap (/Users/serbinov/Desktop/projects/jamal/TMB-backend/hamming_bot_gateway/dist/connectors/raydium/clmm-routes/executeSwap.js:201:5)\n    at async Object.<anonymous> (/Users/serbinov/Desktop/projects/jamal/TMB-backend/hamming_bot_gateway/dist/connectors/raydium/amm-routes/executeSwap.js:192:32)"
+  }
+}
