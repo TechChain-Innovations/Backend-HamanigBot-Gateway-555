@@ -284,6 +284,52 @@ export const UniswapAmmExecuteSwapRequest = Type.Object({
   ),
 });
 
+// Uniswap AMM Simulate Swap Request
+export const UniswapAmmSimulateSwapRequest = Type.Object({
+  network: Type.Optional(
+    Type.String({
+      description: 'The EVM network to use',
+      default: ethereumChainConfig.defaultNetwork,
+      enum: [...UniswapConfig.networks],
+    })
+  ),
+  poolAddress: Type.Optional(
+    Type.String({
+      description: 'Pool address (optional - can be looked up from tokens)',
+    })
+  ),
+  baseToken: Type.String({
+    description: 'Base token symbol or address',
+    examples: [BASE_TOKEN],
+  }),
+  quoteToken: Type.Optional(
+    Type.String({
+      description: 'Quote token symbol or address',
+      examples: [QUOTE_TOKEN],
+    })
+  ),
+  amount: Type.Number({
+    description: 'Amount to swap',
+    examples: [SWAP_AMOUNT],
+  }),
+  side: Type.String({
+    enum: ['BUY', 'SELL'],
+    default: 'SELL',
+  }),
+});
+
+// Uniswap AMM Simulate Swap Response
+export const UniswapAmmSimulateSwapResponse = Type.Object({
+  poolAddress: Type.String(),
+  tokenIn: Type.String(),
+  tokenOut: Type.String(),
+  amountIn: Type.Number(),
+  amountOut: Type.Number(),
+  price: Type.Number(),
+  priceImpactPct: Type.Number(),
+  finalPrice: Type.Number(), // The simulated price after the swap
+});
+
 // Uniswap-specific execute-swap request
 export const UniswapExecuteSwapRequest = Type.Object({
   walletAddress: Type.Optional(
@@ -583,4 +629,61 @@ export const UniswapClmmExecuteSwapRequest = Type.Object({
       examples: [300000],
     })
   ),
+});
+
+// Uniswap CLMM Simulate Swap Request
+export const UniswapClmmSimulateSwapRequest = Type.Object({
+  network: Type.Optional(
+    Type.String({
+      description: 'The EVM network to use',
+      default: ethereumChainConfig.defaultNetwork,
+      enum: [...UniswapConfig.networks],
+    })
+  ),
+  poolAddress: Type.Optional(
+    Type.String({
+      description: 'Pool address (optional - can be looked up from tokens)',
+    })
+  ),
+  baseToken: Type.String({
+    description: 'Base token symbol or address',
+    examples: [BASE_TOKEN],
+  }),
+  quoteToken: Type.Optional(
+    Type.String({
+      description: 'Quote token symbol or address',
+      examples: [QUOTE_TOKEN],
+    })
+  ),
+  amount: Type.Number({
+    description: 'Amount to swap',
+    examples: [SWAP_AMOUNT],
+  }),
+  side: Type.String({
+    enum: ['BUY', 'SELL'],
+    default: 'SELL',
+  }),
+  slippagePct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      maximum: 100,
+      description: 'Maximum acceptable slippage percentage',
+      default: UniswapConfig.config.slippagePct,
+    })
+  ),
+});
+
+// Uniswap CLMM Simulate Swap Response
+export const UniswapClmmSimulateSwapResponse = Type.Object({
+  poolAddress: Type.String(),
+  tokenIn: Type.String(),
+  tokenOut: Type.String(),
+  amountIn: Type.Number(),
+  amountOut: Type.Number(),
+  price: Type.Number(),
+  slippagePct: Type.Optional(Type.Number()),
+  minAmountOut: Type.Number(),
+  maxAmountIn: Type.Number(),
+  priceImpactPct: Type.Number(),
+  finalPrice: Type.Number(), // The simulated price after the swap
 });

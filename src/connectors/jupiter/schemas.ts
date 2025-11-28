@@ -242,3 +242,57 @@ export const JupiterExecuteSwapRequest = Type.Object({
     })
   ),
 });
+
+// Jupiter-specific simulate-swap request
+export const JupiterSimulateSwapRequest = Type.Object({
+  network: Type.Optional(
+    Type.String({
+      description: 'Solana network to use',
+      default: solanaChainConfig.defaultNetwork,
+      enum: [...JupiterConfig.networks],
+    })
+  ),
+  baseToken: Type.String({
+    description: 'Solana token symbol or address to determine swap direction',
+    examples: [BASE_TOKEN],
+  }),
+  quoteToken: Type.String({
+    description: 'The other Solana token symbol or address in the pair',
+    examples: [QUOTE_TOKEN],
+  }),
+  amount: Type.Number({
+    description: 'Amount of base token to trade',
+    examples: [SWAP_AMOUNT],
+  }),
+  side: Type.String({
+    description:
+      'Trade direction - BUY means buying base token with quote token, SELL means selling base token for quote token',
+    enum: ['BUY', 'SELL'],
+    default: 'SELL',
+  }),
+});
+
+// Jupiter-specific simulate-swap response
+export const JupiterSimulateSwapResponse = Type.Object({
+  tokenIn: Type.String({
+    description: 'Address of the token being swapped from',
+  }),
+  tokenOut: Type.String({
+    description: 'Address of the token being swapped to',
+  }),
+  amountIn: Type.Number({
+    description: 'Amount of tokenIn to be swapped',
+  }),
+  amountOut: Type.Number({
+    description: 'Expected amount of tokenOut to receive',
+  }),
+  price: Type.Number({
+    description: 'Exchange rate between tokenIn and tokenOut',
+  }),
+  priceImpactPct: Type.Number({
+    description: 'Estimated price impact percentage (0-100)',
+  }),
+  finalPrice: Type.Number({
+    description: 'Effective price of the swap, same as price for aggregators.',
+  }),
+});

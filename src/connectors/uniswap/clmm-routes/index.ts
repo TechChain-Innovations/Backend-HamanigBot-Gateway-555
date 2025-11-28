@@ -11,6 +11,7 @@ import positionsOwnedRoute from './positionsOwned';
 import quotePositionRoute from './quotePosition';
 import quoteSwapRoute from './quoteSwap';
 import removeLiquidityRoute from './removeLiquidity';
+import { simulateSwapRoute } from './simulateSwap';
 
 export const uniswapClmmRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(poolInfoRoute);
@@ -24,6 +25,7 @@ export const uniswapClmmRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(removeLiquidityRoute);
   await fastify.register(collectFeesRoute);
   await fastify.register(closePositionRoute);
+  await fastify.register(simulateSwapRoute);
 };
 
 export default uniswapClmmRoutes;

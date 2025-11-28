@@ -380,11 +380,19 @@ export async function getRawSwapQuote(
       ? result.amountOut.toString() / result.amountIn.toString()
       : result.amountIn.toString() / result.amountOut.toString();
 
+  // Calculate afterPrice
+  const afterPrice =
+    new Decimal(result.poolInfo.baseReserve.toString())
+      .add(result.amountIn.toString())
+      .div(new Decimal(result.poolInfo.quoteReserve.toString()).sub(result.amountOut.toString()))
+      .div(10 ** (result.poolInfo.mintA.decimals - result.poolInfo.mintB.decimals)) ?? new Decimal(0);
+
   return {
     ...result,
     inputToken,
     outputToken,
     price,
+    afterPrice,
   };
 }
 

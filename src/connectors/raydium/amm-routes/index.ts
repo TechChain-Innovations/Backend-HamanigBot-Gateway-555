@@ -7,6 +7,7 @@ import { positionInfoRoute } from './positionInfo';
 import { quoteLiquidityRoute } from './quoteLiquidity';
 import { quoteSwapRoute } from './quoteSwap';
 import { removeLiquidityRoute } from './removeLiquidity';
+import { simulateSwapAmmRoute } from './simulateSwap';
 
 export const raydiumAmmRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(poolInfoRoute);
@@ -16,6 +17,7 @@ export const raydiumAmmRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(executeSwapRoute);
   await fastify.register(addLiquidityRoute);
   await fastify.register(removeLiquidityRoute);
+  await fastify.register(simulateSwapAmmRoute);
 };
 
 export default raydiumAmmRoutes;

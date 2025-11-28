@@ -100,6 +100,53 @@ export const RaydiumAmmQuoteSwapRequest = Type.Object({
   ),
 });
 
+export const RaydiumAmmSimulateSwapRequest = Type.Object({
+  network: Type.Optional(
+    Type.String({
+      description: 'Solana network to use',
+      default: solanaChainConfig.defaultNetwork,
+      enum: [...RaydiumConfig.networks],
+    })
+  ),
+  poolAddress: Type.Optional(
+    Type.String({
+      description: 'AMM pool address (optional - can be looked up from baseToken and quoteToken)',
+      examples: [AMM_POOL_ADDRESS_EXAMPLE],
+    })
+  ),
+  baseToken: Type.String({
+    description: 'Token to determine swap direction',
+    examples: [BASE_TOKEN],
+  }),
+  quoteToken: Type.Optional(
+    Type.String({
+      description: 'The other token in the pair (optional - required if poolAddress not provided)',
+      examples: [QUOTE_TOKEN],
+    })
+  ),
+  amount: Type.Number({
+    description: 'Amount to swap',
+    examples: [SWAP_AMOUNT],
+  }),
+  side: Type.String({
+    description: 'Trade direction',
+    enum: ['BUY', 'SELL'],
+    default: 'SELL',
+  }),
+});
+
+export const RaydiumAmmSimulateSwapResponse = Type.Object({
+  poolAddress: Type.String(),
+  tokenIn: Type.String(),
+  tokenOut: Type.String(),
+  amountIn: Type.Number(),
+  amountOut: Type.Number(),
+  price: Type.Number(),
+  priceImpactPct: Type.Number(),
+  finalPrice: Type.Number(),
+});
+
+
 // Export the type for ExecuteSwapRequest
 export type RaydiumClmmExecuteSwapRequestType = Static<typeof RaydiumClmmExecuteSwapRequest>;
 
@@ -335,6 +382,52 @@ export const RaydiumClmmQuoteSwapRequest = Type.Object({
       examples: [RaydiumConfig.config.slippagePct],
     })
   ),
+});
+
+export const RaydiumClmmSimulateSwapRequest = Type.Object({
+  network: Type.Optional(
+    Type.String({
+      description: 'Solana network to use',
+      default: solanaChainConfig.defaultNetwork,
+      enum: [...RaydiumConfig.networks],
+    })
+  ),
+  poolAddress: Type.Optional(
+    Type.String({
+      description: 'CLMM pool address (optional - can be looked up from tokens)',
+      examples: [CLMM_POOL_ADDRESS_EXAMPLE],
+    })
+  ),
+  baseToken: Type.String({
+    description: 'Token to determine swap direction',
+    examples: [BASE_TOKEN],
+  }),
+  quoteToken: Type.Optional(
+    Type.String({
+      description: 'The other token in the pair',
+      examples: [QUOTE_TOKEN],
+    })
+  ),
+  amount: Type.Number({
+    description: 'Amount to swap',
+    examples: [SWAP_AMOUNT],
+  }),
+  side: Type.String({
+    description: 'Trade direction',
+    enum: ['BUY', 'SELL'],
+    default: 'SELL',
+  }),
+});
+
+export const RaydiumClmmSimulateSwapResponse = Type.Object({
+  poolAddress: Type.String(),
+  tokenIn: Type.String(),
+  tokenOut: Type.String(),
+  amountIn: Type.Number(),
+  amountOut: Type.Number(),
+  price: Type.Number(),
+  priceImpactPct: Type.Number(),
+  finalPrice: Type.Number(),
 });
 
 export const RaydiumClmmExecuteSwapRequest = Type.Object({
