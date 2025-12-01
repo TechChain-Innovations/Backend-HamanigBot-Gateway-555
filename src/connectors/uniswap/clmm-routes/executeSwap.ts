@@ -1,5 +1,6 @@
 import { BigNumber, Contract, utils } from 'ethers';
 import { FastifyPluginAsync, FastifyInstance } from 'fastify';
+import { approveEthereumToken } from '../../../chains/ethereum/routes/approve';
 
 import { Ethereum } from '../../../chains/ethereum/ethereum';
 import { EthereumLedger } from '../../../chains/ethereum/ethereum-ledger';
@@ -16,6 +17,29 @@ import { getUniswapClmmQuote } from './quoteSwap';
 // Default gas limit for CLMM swap operations
 const CLMM_SWAP_GAS_LIMIT = 350000;
 
+// In-memory per-wallet lock to serialize tx submissions and avoid nonce collisions
+const walletLocks = new Map<string, Promise<void>>();
+
+async function acquireWalletLock(address: string): Promise<() => void> {
+  const key = address.toLowerCase();
+  const prev = walletLocks.get(key) ?? Promise.resolve();
+
+  let releaseNext: () => void;
+  const next = new Promise<void>(resolve => {
+    releaseNext = resolve;
+  });
+
+  walletLocks.set(key, prev.then(() => next));
+  await prev;
+
+  return () => {
+    releaseNext();
+    if (walletLocks.get(key) === next) {
+      walletLocks.delete(key);
+    }
+  };
+}
+
 export async function executeClmmSwap(
   fastify: FastifyInstance,
   walletAddress: string,
@@ -26,6 +50,8 @@ export async function executeClmmSwap(
   side: 'BUY' | 'SELL',
   slippagePct: number
 ): Promise<SwapExecuteResponseType> {
+  const releaseLock = await acquireWalletLock(walletAddress);
+  try {
   const ethereum = await Ethereum.getInstance(network);
   await ethereum.init();
 
@@ -80,15 +106,30 @@ export async function executeClmmSwap(
     `Amount needed: ${formatTokenAmount(amountNeeded, quote.inputToken.decimals)} ${quote.inputToken.symbol}`
   );
 
-  // Check if allowance is sufficient
+  // Auto-approve if allowance is insufficient (10x buffer)
   if (currentAllowance.lt(amountNeeded)) {
-    logger.error(`Insufficient allowance for ${quote.inputToken.symbol}`);
-    throw fastify.httpErrors.badRequest(
-      `Insufficient allowance for ${quote.inputToken.symbol}. Please approve at least ${formatTokenAmount(
-        amountNeeded,
+    const approvalAmount = BigNumber.from(amountNeeded).mul(10);
+    logger.warn(
+      `Insufficient allowance for ${quote.inputToken.symbol}. Current=${formatTokenAmount(
+        currentAllowance.toString(),
         quote.inputToken.decimals
-      )} ${quote.inputToken.symbol} (${quote.inputToken.address}) for the Uniswap SwapRouter02 (${routerAddress})`
+      )} needed=${formatTokenAmount(amountNeeded, quote.inputToken.decimals)}. Approving ${formatTokenAmount(
+        approvalAmount.toString(),
+        quote.inputToken.decimals
+      )}`
     );
+
+    const approval = await approveEthereumToken(
+      fastify,
+      network,
+      walletAddress,
+      'uniswap',
+      quote.inputToken.address,
+      // amount parameter expects a string; we pass raw token amount (not human) to avoid rounding
+      approvalAmount.toString()
+    );
+
+    logger.info(`Approval submitted: ${approval.signature}`);
   }
 
   logger.info(
@@ -96,6 +137,24 @@ export async function executeClmmSwap(
       quote.inputToken.symbol
     }`
   );
+
+  // Balance check to avoid on-chain reverts
+  const balanceRaw: BigNumber = await tokenContract.balanceOf(walletAddress);
+  const balanceHuman = formatTokenAmount(balanceRaw.toString(), quote.inputToken.decimals);
+  const requiredAmount = side === 'SELL' ? quote.rawAmountIn : quote.rawMaxAmountIn;
+  logger.info(`Current balance: ${balanceHuman} ${quote.inputToken.symbol}`);
+  logger.info(
+    `Amount required for swap: ${formatTokenAmount(requiredAmount, quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+  );
+
+  if (balanceRaw.lt(requiredAmount)) {
+    throw fastify.httpErrors.badRequest(
+      `Insufficient ${quote.inputToken.symbol} balance. Need ${formatTokenAmount(
+        requiredAmount,
+        quote.inputToken.decimals,
+      )}, available ${balanceHuman}`,
+    );
+  }
 
   // Build swap parameters
   const swapParams = {
@@ -112,13 +171,12 @@ export async function executeClmmSwap(
 
   let receipt;
 
-  try {
-    if (isHardwareWallet) {
+  if (isHardwareWallet) {
       // Hardware wallet flow
       logger.info(`Hardware wallet detected for ${walletAddress}. Building swap transaction for Ledger signing.`);
 
       const ledger = new EthereumLedger();
-      const nonce = await ethereum.provider.getTransactionCount(walletAddress, 'latest');
+      const nonce = await ethereum.provider.getTransactionCount(walletAddress, 'pending');
 
       // Build the swap transaction data
       const iface = new utils.Interface(ISwapRouter02ABI);
@@ -252,48 +310,48 @@ export async function executeClmmSwap(
       receipt = await tx.wait();
     }
 
-    // Check if the transaction was successful
-    if (receipt.status === 0) {
-      logger.error(`Transaction failed on-chain. Receipt: ${JSON.stringify(receipt)}`);
-      throw fastify.httpErrors.internalServerError(
-        'Transaction reverted on-chain. This could be due to slippage, insufficient funds, or other blockchain issues.'
-      );
-    }
-
-    logger.info(`Transaction confirmed: ${receipt.transactionHash}`);
-    logger.info(`Gas used: ${receipt.gasUsed.toString()}`);
-
-    // Calculate amounts using quote values
-    const amountIn = quote.estimatedAmountIn;
-    const amountOut = quote.estimatedAmountOut;
-
-    // Calculate balance changes as numbers
-    const baseTokenBalanceChange = side === 'BUY' ? amountOut : -amountIn;
-    const quoteTokenBalanceChange = side === 'BUY' ? -amountIn : amountOut;
-
-    // Calculate gas fee (formatTokenAmount already returns a number)
-    const gasFee = formatTokenAmount(
-      receipt.gasUsed.mul(receipt.effectiveGasPrice).toString(),
-      18 // ETH has 18 decimals
+  // Check if the transaction was successful
+  if (receipt.status === 0) {
+    logger.error(`Transaction failed on-chain. Receipt: ${JSON.stringify(receipt)}`);
+    throw fastify.httpErrors.internalServerError(
+      'Transaction reverted on-chain. This could be due to slippage, insufficient funds, or other blockchain issues.'
     );
+  }
 
-    // Determine token addresses for computed fields
-    const tokenIn = quote.inputToken.address;
-    const tokenOut = quote.outputToken.address;
+  logger.info(`Transaction confirmed: ${receipt.transactionHash}`);
+  logger.info(`Gas used: ${receipt.gasUsed.toString()}`);
 
-    return {
-      signature: receipt.transactionHash,
-      status: 1, // CONFIRMED
-      data: {
-        tokenIn,
-        tokenOut,
-        amountIn,
-        amountOut,
-        fee: gasFee,
-        baseTokenBalanceChange,
-        quoteTokenBalanceChange,
-      },
-    };
+  // Calculate amounts using quote values
+  const amountIn = quote.estimatedAmountIn;
+  const amountOut = quote.estimatedAmountOut;
+
+  // Calculate balance changes as numbers
+  const baseTokenBalanceChange = side === 'BUY' ? amountOut : -amountIn;
+  const quoteTokenBalanceChange = side === 'BUY' ? -amountIn : amountOut;
+
+  // Calculate gas fee (formatTokenAmount already returns a number)
+  const gasFee = formatTokenAmount(
+    receipt.gasUsed.mul(receipt.effectiveGasPrice).toString(),
+    18 // ETH has 18 decimals
+  );
+
+  // Determine token addresses for computed fields
+  const tokenIn = quote.inputToken.address;
+  const tokenOut = quote.outputToken.address;
+
+  return {
+    signature: receipt.transactionHash,
+    status: 1, // CONFIRMED
+    data: {
+      tokenIn,
+      tokenOut,
+      amountIn,
+      amountOut,
+      fee: gasFee,
+      baseTokenBalanceChange,
+      quoteTokenBalanceChange,
+    },
+  };
   } catch (error) {
     logger.error(`Swap execution error: ${error.message}`);
     if (error.transaction) {
@@ -322,6 +380,8 @@ export async function executeClmmSwap(
     }
 
     throw fastify.httpErrors.internalServerError(`Failed to execute swap: ${error.message}`);
+  } finally {
+    releaseLock();
   }
 }
 

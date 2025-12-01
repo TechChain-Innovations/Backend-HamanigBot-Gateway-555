@@ -611,7 +611,7 @@ export class Ethereum {
     const gasOptions = await this.prepareGasOptions();
     const params: any = {
       ...gasOptions,
-      nonce: await this.provider.getTransactionCount(wallet.address),
+      nonce: await this.provider.getTransactionCount(wallet.address, 'pending'),
     };
 
     // Don't add gasPrice when using EIP-1559 parameters

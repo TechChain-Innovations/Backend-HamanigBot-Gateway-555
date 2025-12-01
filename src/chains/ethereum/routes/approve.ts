@@ -142,7 +142,7 @@ export async function approveEthereumToken(
         const ledger = new EthereumLedger();
 
         // Get nonce for the address
-        const nonce = await ethereum.provider.getTransactionCount(address, 'latest');
+        const nonce = await ethereum.provider.getTransactionCount(address, 'pending');
 
         // Build the approve transaction data
         const iface = new utils.Interface(['function approve(address spender, uint256 amount)']);
@@ -249,7 +249,7 @@ export async function approveEthereumToken(
         logger.info(`Hardware wallet: Building Permit2.approve() transaction`);
 
         const ledger = new EthereumLedger();
-        const nonce = await ethereum.provider.getTransactionCount(address, 'latest');
+        const nonce = await ethereum.provider.getTransactionCount(address, 'pending');
 
         // Build the Permit2 approve transaction data
         const iface = new utils.Interface(permit2ApproveABI);

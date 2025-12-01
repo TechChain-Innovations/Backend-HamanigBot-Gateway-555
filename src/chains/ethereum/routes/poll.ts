@@ -104,13 +104,25 @@ export async function pollEthereumTransaction(
 
     logger.info(`Poll ethereum, signature ${signature}, status ${txStatus}.`);
 
+    let fee: number | null = null;
+    try {
+      const gasUsed = txReceipt?.gasUsed ?? null;
+      const effectiveGasPrice = (txReceipt as any)?.effectiveGasPrice ?? txData?.gasPrice ?? null;
+      if (gasUsed && effectiveGasPrice) {
+        const feeWei = gasUsed.mul(effectiveGasPrice);
+        fee = Number(ethers.utils.formatEther(feeWei));
+      }
+    } catch (feeErr: any) {
+      logger.warn(`Failed to compute fee for ${signature}: ${feeErr?.message ?? feeErr}`);
+    }
+
     return {
       currentBlock,
       signature,
       txBlock,
       txStatus,
       txData: toEthereumTransactionResponse(txData),
-      fee: null, // Optional field
+      fee, // native token amount (ETH)
     };
   } catch (error) {
     if (error.statusCode) {
