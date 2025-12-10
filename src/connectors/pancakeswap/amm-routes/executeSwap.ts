@@ -17,6 +17,35 @@ import { getPancakeswapAmmQuote } from './quoteSwap';
 // Default gas limit for AMM swap operations
 const AMM_SWAP_GAS_LIMIT = 300000;
 
+const normalizeGasInput = (value?: number | null) => (value && value > 0 ? value : undefined);
+
+async function buildGasOptions(
+  ethereum: Ethereum,
+  gasLimit: number,
+  gasMax?: number,
+  gasMultiplierPct?: number,
+): Promise<any> {
+  const cap = normalizeGasInput(gasMax);
+  const multiplier = normalizeGasInput(gasMultiplierPct);
+  const manual = cap !== undefined || multiplier !== undefined;
+
+  if (!manual) {
+    return ethereum.prepareGasOptions(undefined, gasLimit);
+  }
+
+  const baseGwei = await ethereum.estimateGasPrice();
+  const withMultiplier = multiplier ? baseGwei * (1 + multiplier / 100) : baseGwei;
+  const capped = cap ? Math.min(withMultiplier, cap) : withMultiplier;
+  const effective = Math.max(capped, ethereum.minGasPrice ?? 0);
+  const gasPriceWei = utils.parseUnits(effective.toString(), 'gwei');
+
+  return {
+    type: 0,
+    gasLimit: gasLimit ?? AMM_SWAP_GAS_LIMIT,
+    gasPrice: gasPriceWei,
+  };
+}
+
 export async function executeAmmSwap(
   fastify: FastifyInstance,
   walletAddress: string,
@@ -25,7 +54,9 @@ export async function executeAmmSwap(
   quoteToken: string,
   amount: number,
   side: 'BUY' | 'SELL',
-  slippagePct: number
+  slippagePct: number,
+  gasMax?: number,
+  gasMultiplierPct?: number,
 ): Promise<SwapExecuteResponseType> {
   const ethereum = await Ethereum.getInstance(network);
   await ethereum.init();
@@ -145,8 +176,7 @@ export async function executeAmmSwap(
         ]);
       }
 
-      // Get gas options using estimateGasPrice
-      const gasOptions = await ethereum.prepareGasOptions(undefined, AMM_SWAP_GAS_LIMIT);
+      const gasOptions = await buildGasOptions(ethereum, AMM_SWAP_GAS_LIMIT, gasMax, gasMultiplierPct);
 
       // Build unsigned transaction with gas parameters
       const unsignedTx = {
@@ -179,8 +209,7 @@ export async function executeAmmSwap(
 
       const routerContract = new Contract(routerAddress, IPancakeswapV2Router02ABI.abi, wallet);
 
-      // Get gas options using estimateGasPrice
-      const gasOptions = await ethereum.prepareGasOptions(undefined, AMM_SWAP_GAS_LIMIT);
+      const gasOptions = await buildGasOptions(ethereum, AMM_SWAP_GAS_LIMIT, gasMax, gasMultiplierPct);
       const txOptions: any = { ...gasOptions };
 
       logger.info(`Using gas options: ${JSON.stringify(txOptions)}`);
@@ -318,6 +347,8 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           amount,
           side = 'SELL',
           slippagePct = 1,
+          gasMax,
+          gasMultiplierPct,
         } = request.body as typeof PancakeswapAmmExecuteSwapRequest._type;
 
         return await executeAmmSwap(
@@ -328,7 +359,9 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           quoteToken || '', // Handle optional quoteToken
           amount,
           side as 'BUY' | 'SELL',
-          slippagePct
+          slippagePct,
+          gasMax,
+          gasMultiplierPct,
         );
       } catch (e) {
         if (e.statusCode) throw e;

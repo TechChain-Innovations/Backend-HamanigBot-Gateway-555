@@ -282,6 +282,20 @@ export const UniswapAmmExecuteSwapRequest = Type.Object({
       default: UniswapConfig.config.slippagePct,
     })
   ),
+  gasMax: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Manual gas price cap in Gwei (0 = auto)',
+      examples: [50],
+    })
+  ),
+  gasMultiplierPct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Gas price multiplier percent (0 = auto)',
+      examples: [35],
+    })
+  ),
 });
 
 // Uniswap AMM Simulate Swap Request
@@ -370,6 +384,20 @@ export const UniswapExecuteSwapRequest = Type.Object({
       description: 'Maximum acceptable slippage percentage',
       default: UniswapConfig.config.slippagePct,
       examples: [1],
+    })
+  ),
+  gasMax: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Manual gas price cap in Gwei (0 = auto)',
+      examples: [50],
+    })
+  ),
+  gasMultiplierPct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Gas price multiplier percent (0 = auto)',
+      examples: [35],
     })
   ),
 });

@@ -20,6 +20,35 @@ const CLMM_SWAP_GAS_LIMIT = 350000;
 // In-memory per-wallet lock to serialize tx submissions and avoid nonce collisions
 const walletLocks = new Map<string, Promise<void>>();
 
+const normalizeGasInput = (value?: number | null) => (value && value > 0 ? value : undefined);
+
+async function buildGasOptions(
+  ethereum: Ethereum,
+  gasLimit: number,
+  gasMax?: number,
+  gasMultiplierPct?: number,
+): Promise<any> {
+  const cap = normalizeGasInput(gasMax);
+  const multiplier = normalizeGasInput(gasMultiplierPct);
+  const manual = cap !== undefined || multiplier !== undefined;
+
+  if (!manual) {
+    return ethereum.prepareGasOptions(undefined, gasLimit);
+  }
+
+  const baseGwei = await ethereum.estimateGasPrice();
+  const withMultiplier = multiplier ? baseGwei * (1 + multiplier / 100) : baseGwei;
+  const capped = cap ? Math.min(withMultiplier, cap) : withMultiplier;
+  const effective = Math.max(capped, ethereum.minGasPrice ?? 0);
+  const gasPriceWei = utils.parseUnits(effective.toString(), 'gwei');
+
+  return {
+    type: 0, // legacy to honor manual gas price
+    gasLimit: gasLimit ?? CLMM_SWAP_GAS_LIMIT,
+    gasPrice: gasPriceWei,
+  };
+}
+
 async function acquireWalletLock(address: string): Promise<() => void> {
   const key = address.toLowerCase();
   const prev = walletLocks.get(key) ?? Promise.resolve();
@@ -48,7 +77,9 @@ export async function executeClmmSwap(
   quoteToken: string,
   amount: number,
   side: 'BUY' | 'SELL',
-  slippagePct: number
+  slippagePct: number,
+  gasMax?: number,
+  gasMultiplierPct?: number,
 ): Promise<SwapExecuteResponseType> {
   const releaseLock = await acquireWalletLock(walletAddress);
   try {
@@ -224,8 +255,7 @@ export async function executeClmmSwap(
         data = iface.encodeFunctionData('exactOutputSingle', [exactOutputParams]);
       }
 
-      // Get gas options using estimateGasPrice
-      const gasOptions = await ethereum.prepareGasOptions(undefined, CLMM_SWAP_GAS_LIMIT);
+      const gasOptions = await buildGasOptions(ethereum, CLMM_SWAP_GAS_LIMIT, gasMax, gasMultiplierPct);
 
       // Build unsigned transaction with gas parameters
       const unsignedTx = {
@@ -258,8 +288,7 @@ export async function executeClmmSwap(
 
       const routerContract = new Contract(routerAddress, ISwapRouter02ABI, wallet);
 
-      // Use Ethereum's gas options
-      const txOptions = await ethereum.prepareGasOptions(undefined, CLMM_SWAP_GAS_LIMIT);
+      const txOptions = await buildGasOptions(ethereum, CLMM_SWAP_GAS_LIMIT, gasMax, gasMultiplierPct);
 
       let tx;
       if (side === 'SELL') {
@@ -401,7 +430,7 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       try {
-        const { walletAddress, network, baseToken, quoteToken, amount, side, slippagePct } =
+        const { walletAddress, network, baseToken, quoteToken, amount, side, slippagePct, gasMax, gasMultiplierPct } =
           request.body as typeof UniswapExecuteSwapRequest._type;
 
         return await executeClmmSwap(
@@ -412,7 +441,9 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
           quoteToken,
           amount,
           side as 'BUY' | 'SELL',
-          slippagePct
+          slippagePct,
+          gasMax,
+          gasMultiplierPct,
         );
       } catch (e) {
         if (e.statusCode) throw e;

@@ -118,14 +118,26 @@ export const ExecuteSwapRequest = Type.Object(
         'Trade direction - BUY means buying base token with quote token, SELL means selling base token for quote token',
       enum: ['BUY', 'SELL'],
     }),
-    slippagePct: Type.Optional(
-      Type.Number({
-        minimum: 0,
-        maximum: 100,
-        description: 'Maximum acceptable slippage percentage',
-      })
-    ),
-  },
+  slippagePct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      maximum: 100,
+      description: 'Maximum acceptable slippage percentage',
+    })
+  ),
+  gasMax: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Manual gas price cap in Gwei (0 = auto)',
+    })
+  ),
+  gasMultiplierPct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Gas price multiplier percent (0 = auto)',
+    })
+  ),
+},
   { $id: 'ExecuteSwapRequest' }
 );
 export type ExecuteSwapRequestType = Static<typeof ExecuteSwapRequest>;

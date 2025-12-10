@@ -293,6 +293,20 @@ export const PancakeswapAmmExecuteSwapRequest = Type.Object({
       default: PancakeswapConfig.config.slippagePct,
     })
   ),
+  gasMax: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Manual gas price cap in Gwei (0 = auto)',
+      examples: [20],
+    })
+  ),
+  gasMultiplierPct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Gas price multiplier percent (0 = auto)',
+      examples: [35],
+    })
+  ),
 });
 
 // Pancakeswap-specific execute-swap request
@@ -336,6 +350,20 @@ export const PancakeswapExecuteSwapRequest = Type.Object({
       description: 'Maximum acceptable slippage percentage',
       default: PancakeswapConfig.config.slippagePct,
       examples: [1],
+    })
+  ),
+  gasMax: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Manual gas price cap in Gwei (0 = auto)',
+      examples: [20],
+    })
+  ),
+  gasMultiplierPct: Type.Optional(
+    Type.Number({
+      minimum: 0,
+      description: 'Gas price multiplier percent (0 = auto)',
+      examples: [35],
     })
   ),
 });
