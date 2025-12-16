@@ -380,12 +380,36 @@ export async function getRawSwapQuote(
       ? result.amountOut.toString() / result.amountIn.toString()
       : result.amountIn.toString() / result.amountOut.toString();
 
-  // Calculate afterPrice
-  const afterPrice =
-    new Decimal(result.poolInfo.baseReserve.toString())
-      .add(result.amountIn.toString())
-      .div(new Decimal(result.poolInfo.quoteReserve.toString()).sub(result.amountOut.toString()))
-      .div(10 ** (result.poolInfo.mintA.decimals - result.poolInfo.mintB.decimals)) ?? new Decimal(0);
+  // Precise price impact (before vs after reserves)
+  const baseIsMintA = result.poolInfo.baseTokenAddress === result.poolInfo.mintA.address;
+  const baseDecimals = baseIsMintA ? result.poolInfo.mintA.decimals : result.poolInfo.mintB.decimals;
+  const quoteDecimals = baseIsMintA ? result.poolInfo.mintB.decimals : result.poolInfo.mintA.decimals;
+
+  const baseReserveBefore = new Decimal(result.poolInfo.baseReserve.toString()).div(10 ** baseDecimals);
+  const quoteReserveBefore = new Decimal(result.poolInfo.quoteReserve.toString()).div(10 ** quoteDecimals);
+
+  let baseReserveAfter = baseReserveBefore;
+  let quoteReserveAfter = quoteReserveBefore;
+
+  if (side === 'SELL') {
+    // input = base, output = quote
+    const amountInBase = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
+    const amountOutQuote = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
+    baseReserveAfter = baseReserveBefore.add(amountInBase);
+    quoteReserveAfter = quoteReserveBefore.sub(amountOutQuote);
+  } else {
+    // input = quote, output = base
+    const amountInQuote = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
+    const amountOutBase = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
+    baseReserveAfter = baseReserveBefore.sub(amountOutBase);
+    quoteReserveAfter = quoteReserveBefore.add(amountInQuote);
+  }
+
+  const beforePrice = quoteReserveBefore.eq(0) ? new Decimal(0) : baseReserveBefore.div(quoteReserveBefore);
+  const afterPrice = quoteReserveAfter.eq(0) ? new Decimal(0) : baseReserveAfter.div(quoteReserveAfter);
+  const priceImpactPct = beforePrice.gt(0)
+    ? beforePrice.minus(afterPrice).abs().div(beforePrice).mul(100).toNumber()
+    : 0;
 
   return {
     ...result,
@@ -393,6 +417,7 @@ export async function getRawSwapQuote(
     outputToken,
     price,
     afterPrice,
+    priceImpactPct,
   };
 }
 
@@ -487,7 +512,12 @@ async function formatSwapQuote(
 
   // Calculate fee and price impact
   const fee = quote.fee ? new Decimal(quote.fee.toString()).div(10 ** inputToken.decimals).toNumber() : 0;
-  const priceImpactPct = quote.priceImpact ? quote.priceImpact * 100 : 0;
+  const priceImpactPct =
+    typeof (quote as any).priceImpactPct === 'number'
+      ? (quote as any).priceImpactPct
+      : quote.priceImpact
+        ? quote.priceImpact * 100
+        : 0;
 
   return {
     // Base QuoteSwapResponse fields

@@ -39,7 +39,7 @@ async function buildGasOptions(
   const baseGwei = await ethereum.estimateGasPrice();
   const withMultiplier = multiplier ? baseGwei * (1 + multiplier / 100) : baseGwei;
   const capped = cap ? Math.min(withMultiplier, cap) : withMultiplier;
-  const effective = Math.max(capped, ethereum.minGasPrice ?? 0);
+  const effective = capped; // let chain/node decide if too low
   const gasPriceWei = utils.parseUnits(effective.toString(), 'gwei');
 
   return {
