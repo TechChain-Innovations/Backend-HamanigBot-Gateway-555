@@ -79,6 +79,17 @@ jobs:
 
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "digest=${{ steps.build.outputs.digest || '' }}" >> "$GITHUB_OUTPUT"
+          
+      - name: Verify token can access target repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.INFRA_REPO_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/TechChain-Innovations/TMB-HamanigBot-Gateway)
+          echo "GitHub API status: $code"
+          test "$code" = "200"
 
       - name: Checkout deploy repo (charts repo)
         uses: actions/checkout@v4
