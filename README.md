@@ -12,7 +12,7 @@ pnpm start --passphrase\=12121212 --dev
 # Hummingbot Gateway
 
 ## Introduction
-
+ 
 Hummingbot Gateway is a versatile API server that standardizes interactions with blockchain networks and decentralized exchanges (DEXs). It acts as a middleware layer, providing a unified interface for performing actions like checking balances, executing trades, and managing wallets across different protocols.
 
 Gateway can be accessed through:
