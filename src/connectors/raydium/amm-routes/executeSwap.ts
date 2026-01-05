@@ -229,13 +229,14 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
         } = request.body as typeof RaydiumAmmExecuteSwapRequest._type;
         const networkToUse = network;
 
+        const normalizedSide = typeof side === 'string' ? side.toUpperCase() : undefined;
         errContext = {
           walletAddress,
           poolAddress,
           amount,
           side,
-          tokenIn: baseToken,
-          tokenOut: quoteToken,
+          tokenIn: normalizedSide === 'BUY' ? quoteToken : baseToken,
+          tokenOut: normalizedSide === 'BUY' ? baseToken : quoteToken,
         };
 
         // If the supplied pool is actually a CLMM pool, transparently route to the CLMM handler

@@ -38,5 +38,23 @@
     "symbol": "clmm",
     "address": "mtD9TRy8bxqij5dhhbuMZSiCGJb7MurxHqNdjRYZHyK",
     "decimals": 6
+  },
+  {
+    "name": "SMF",
+    "symbol": "SMF",
+    "address": "49hY35FvJ8KimFrkGL1X89GSve1C1ZVoLPeQBUHXCouy",
+    "decimals": 6
+  },
+  {
+    "name": "23",
+    "symbol": "23",
+    "address": "FQgpCdBMDXNGtfdLk4ay3K1uepsypoXNWyYKkaja9ajE",
+    "decimals": 6
+  },
+  {
+    "name": "UNKNOWN",
+    "symbol": "UNKNOWN",
+    "address": "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr",
+    "decimals": 6
   }
 ]

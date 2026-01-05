@@ -10,7 +10,7 @@ package-lock.json
 /coverage
 **/.DS_Store
 **/gateway_files
-
+/conf/wallets
 # VSCode
 .vscode/
 .history

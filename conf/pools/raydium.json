@@ -333,5 +333,38 @@
     "quoteAddress": "BCos8JF8paBbnovnB3jZ7Ea79ZWaEsX1fhxvgNSU5ep6",
     "baseDecimals": 9,
     "quoteDecimals": 6
+  },
+  {
+    "type": "amm",
+    "network": "devnet",
+    "baseSymbol": "SMF",
+    "quoteSymbol": "dwSOL",
+    "address": "C9yw2nGHdKWMHH1ATnXsaXMtCb9z24LRtTDWZqNGEd6D",
+    "baseAddress": "49hY35FvJ8KimFrkGL1X89GSve1C1ZVoLPeQBUHXCouy",
+    "quoteAddress": "So11111111111111111111111111111111111111112",
+    "baseDecimals": 6,
+    "quoteDecimals": 9
+  },
+  {
+    "type": "amm",
+    "network": "devnet",
+    "baseSymbol": "dwSOL",
+    "quoteSymbol": "23",
+    "address": "F2fWqNQjZ4C4LnmSp4LBdYy263ayogtJhG7hrGufMPbt",
+    "baseAddress": "So11111111111111111111111111111111111111112",
+    "quoteAddress": "FQgpCdBMDXNGtfdLk4ay3K1uepsypoXNWyYKkaja9ajE",
+    "baseDecimals": 9,
+    "quoteDecimals": 6
+  },
+  {
+    "type": "amm",
+    "network": "devnet",
+    "baseSymbol": "dwSOL",
+    "quoteSymbol": "UNKNOWN",
+    "address": "EpKq3bC9PaL63NpPc9nyjKdURNXaoq1Vb3Pivw8CyGT1",
+    "baseAddress": "So11111111111111111111111111111111111111112",
+    "quoteAddress": "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr",
+    "baseDecimals": 9,
+    "quoteDecimals": 6
   }
 ]

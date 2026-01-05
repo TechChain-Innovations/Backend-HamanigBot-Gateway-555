@@ -205,6 +205,7 @@ export async function executeClmmSwap(
   };
 
   let receipt;
+  let txHash: string | undefined;
 
   if (isHardwareWallet) {
       // Hardware wallet flow
@@ -277,8 +278,9 @@ export async function executeClmmSwap(
 
       // Send the signed transaction
       const txResponse = await ethereum.provider.sendTransaction(signedTx);
+      txHash = txResponse.hash;
 
-      logger.info(`Transaction sent: ${txResponse.hash}`);
+      logger.info(`Transaction sent: ${txHash}`);
 
       // Wait for confirmation with timeout (30 seconds for hardware wallets)
       receipt = await waitForTransactionWithTimeout(txResponse, 30000);
@@ -341,54 +343,49 @@ export async function executeClmmSwap(
         tx = await routerContract.exactOutputSingle(exactOutputParams, txOptions);
       }
 
-      logger.info(`Transaction sent: ${tx.hash}`);
+      txHash = tx.hash;
+      logger.info(`Transaction sent: ${txHash}`);
 
-      // Wait for transaction confirmation
-      receipt = await tx.wait();
+      // Wait for transaction confirmation (bounded)
+      receipt = await waitForTransactionWithTimeout(tx as any, 30000);
     }
 
-  // Check if the transaction was successful
-  if (receipt.status === 0) {
+  // Calculate amounts using quote values
+  const amountIn = quote.estimatedAmountIn;
+  const amountOut = quote.estimatedAmountOut;
+
+  // Determine token addresses for computed fields
+  const tokenIn = quote.inputToken.address;
+  const tokenOut = quote.outputToken.address;
+
+  const result = ethereum.handleTransactionConfirmation(
+    receipt ?? null,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    amountOut,
+    side,
+    txHash
+  );
+
+  if (result.status === -1) {
     logger.error(`Transaction failed on-chain. Receipt: ${JSON.stringify(receipt)}`);
     throw fastify.httpErrors.internalServerError(
       'Transaction reverted on-chain. This could be due to slippage, insufficient funds, or other blockchain issues.'
     );
   }
 
-  logger.info(`Transaction confirmed: ${receipt.transactionHash}`);
-  logger.info(`Gas used: ${receipt.gasUsed.toString()}`);
+  if (result.status === 0) {
+    logger.info(`Transaction ${result.signature || 'pending'} is still pending`);
+    return result;
+  }
 
-  // Calculate amounts using quote values
-  const amountIn = quote.estimatedAmountIn;
-  const amountOut = quote.estimatedAmountOut;
+  logger.info(`Transaction confirmed: ${result.signature}`);
+  if (receipt?.gasUsed) {
+    logger.info(`Gas used: ${receipt.gasUsed.toString()}`);
+  }
 
-  // Calculate balance changes as numbers
-  const baseTokenBalanceChange = side === 'BUY' ? amountOut : -amountIn;
-  const quoteTokenBalanceChange = side === 'BUY' ? -amountIn : amountOut;
-
-  // Calculate gas fee (formatTokenAmount already returns a number)
-  const gasFee = formatTokenAmount(
-    receipt.gasUsed.mul(receipt.effectiveGasPrice).toString(),
-    18 // ETH has 18 decimals
-  );
-
-  // Determine token addresses for computed fields
-  const tokenIn = quote.inputToken.address;
-  const tokenOut = quote.outputToken.address;
-
-  return {
-    signature: receipt.transactionHash,
-    status: 1, // CONFIRMED
-    data: {
-      tokenIn,
-      tokenOut,
-      amountIn,
-      amountOut,
-      fee: gasFee,
-      baseTokenBalanceChange,
-      quoteTokenBalanceChange,
-    },
-  };
+  return result;
   } catch (error) {
     logger.error(`Swap execution error: ${error.message}`);
     if (error.transaction) {
