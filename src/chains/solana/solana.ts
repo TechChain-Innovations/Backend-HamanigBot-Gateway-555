@@ -1581,33 +1581,51 @@ export class Solana {
 
     // Process each token and return array of balance changes
     const balanceChanges = tokens.map((token) => {
-      // Check if this is native SOL
-      if (token === 'So11111111111111111111111111111111111111112') {
-        // For native SOL, we need to calculate from lamport balance changes
+      const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+
+      // For ALL tokens (including wSOL), first try to get balance from preTokenBalances/postTokenBalances
+      // This is more reliable for DEX swaps that use temporary wrapped SOL accounts
+      const preTokenBalance =
+        preTokenBalances.find((balance) => balance.mint === token && balance.owner === owner)?.uiTokenAmount
+          .uiAmount ?? null;
+
+      const postTokenBalance =
+        postTokenBalances.find((balance) => balance.mint === token && balance.owner === owner)?.uiTokenAmount
+          .uiAmount ?? null;
+
+      // If we found token balance entries, use them
+      if (preTokenBalance !== null || postTokenBalance !== null) {
+        return (postTokenBalance ?? 0) - (preTokenBalance ?? 0);
+      }
+
+      // Fallback for wSOL: try native SOL lamport changes (only if no token balances found)
+      // This handles cases where SOL is transferred directly without wrapping
+      if (token === WSOL_MINT) {
         const accountIndex = txDetails.transaction.message.accountKeys.findIndex((key) =>
           key.pubkey.equals(ownerPubkey)
         );
 
         if (accountIndex === -1) {
-          logger.warn(`Owner ${owner} not found in transaction accounts`);
+          logger.warn(`[extractBalanceChanges] Owner ${owner} not found in tx accounts, returning 0 for wSOL`);
           return 0;
         }
 
-        // Calculate SOL change including fees
+        // Note: This will include tx fees in the balance change, which may not be accurate for swap amounts
+        // The caller should use quote/expected amounts as fallback when this returns unexpected values
         const lamportChange = postBalances[accountIndex] - preBalances[accountIndex];
-        return lamportChange * LAMPORT_TO_SOL;
-      } else {
-        // Token mint address provided - get SPL token balance change
-        const preBalance =
-          preTokenBalances.find((balance) => balance.mint === token && balance.owner === owner)?.uiTokenAmount
-            .uiAmount || 0;
+        const solChange = lamportChange * LAMPORT_TO_SOL;
 
-        const postBalance =
-          postTokenBalances.find((balance) => balance.mint === token && balance.owner === owner)?.uiTokenAmount
-            .uiAmount || 0;
+        logger.debug(
+          `[extractBalanceChanges] wSOL fallback: lamportChange=${lamportChange} solChange=${solChange.toFixed(9)} ` +
+            `(note: includes tx fee, may not reflect actual swap amount)`
+        );
 
-        return postBalance - preBalance;
+        return solChange;
       }
+
+      // For other SPL tokens with no balance entries found, return 0
+      logger.debug(`[extractBalanceChanges] No balance entries found for token ${token}, returning 0`);
+      return 0;
     });
 
     return { balanceChanges, fee };
