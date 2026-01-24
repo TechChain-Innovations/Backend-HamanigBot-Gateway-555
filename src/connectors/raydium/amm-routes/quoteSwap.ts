@@ -208,10 +208,12 @@ async function quoteCpmmSwap(
       outputAmount=${outputAmount.toString()}`);
 
     // swap pool mintA for mintB
+    // input vault = reserves of the token we're paying (inputMint)
+    // output vault = reserves of the token we're receiving (outputMint)
     const swapResult = CurveCalculator.swapBaseOutput(
       outputAmount,
-      baseIn ? rpcData.quoteReserve : rpcData.baseReserve, // input vault is the one we are not outputting
-      baseIn ? rpcData.baseReserve : rpcData.quoteReserve, // output vault is the one we are outputting
+      baseIn ? rpcData.baseReserve : rpcData.quoteReserve, // input vault (inputMint reserves)
+      baseIn ? rpcData.quoteReserve : rpcData.baseReserve, // output vault (outputMint reserves)
       rpcData.configInfo!.tradeFeeRate,
       rpcData.configInfo!.creatorFeeRate,
       rpcData.configInfo!.protocolFeeRate,
