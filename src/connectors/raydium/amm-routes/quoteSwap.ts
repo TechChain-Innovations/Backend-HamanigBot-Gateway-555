@@ -428,6 +428,19 @@ export async function getRawSwapQuote(
     ? beforePrice.minus(afterPrice).abs().div(beforePrice).mul(100).toNumber()
     : 0;
 
+  logger.info(
+    `[PriceImpact] baseIsMintA=${baseIsMintA} | baseDecimals=${baseDecimals} | quoteDecimals=${quoteDecimals}`,
+  );
+  logger.info(
+    `[PriceImpact] baseReserveBefore=${baseReserveBefore.toString()} | quoteReserveBefore=${quoteReserveBefore.toString()}`,
+  );
+  logger.info(
+    `[PriceImpact] baseReserveAfter=${baseReserveAfter.toString()} | quoteReserveAfter=${quoteReserveAfter.toString()}`,
+  );
+  logger.info(
+    `[PriceImpact] beforePrice=${beforePrice.toString()} | afterPrice=${afterPrice.toString()} | impact=${priceImpactPct}%`,
+  );
+
   return {
     ...result,
     inputToken,
