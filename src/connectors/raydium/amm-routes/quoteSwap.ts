@@ -14,11 +14,11 @@ import {
 } from '../../../schemas/amm-schema';
 import { logger } from '../../../services/logger';
 import { sanitizeErrorMessage } from '../../../services/sanitize';
-import { Raydium } from '../raydium';
-import { RaydiumAmmQuoteSwapRequest } from '../schemas';
 import { mapSwapError } from '../clmm-routes/executeSwap';
 import { formatSwapQuote as formatClmmSwapQuote, resolveClmmContext } from '../clmm-routes/quoteSwap';
+import { Raydium } from '../raydium';
 import { isValidClmm } from '../raydium.utils';
+import { RaydiumAmmQuoteSwapRequest } from '../schemas';
 
 async function quoteAmmSwap(
   raydium: Raydium,
@@ -28,7 +28,7 @@ async function quoteAmmSwap(
   outputMint: string,
   amountIn?: string,
   amountOut?: string,
-  slippagePct?: number
+  slippagePct?: number,
 ): Promise<any> {
   let poolInfo: ApiV3PoolInfoStandardItem;
   let poolKeys: any;
@@ -88,6 +88,8 @@ async function quoteAmmSwap(
       maxAmountIn: new BN(amountIn),
       fee: out.fee,
       priceImpact: out.priceImpact,
+      baseReserve,
+      quoteReserve,
     };
   } else if (amountOut) {
     const out = raydium.raydiumSDK.liquidity.computeAmountIn({
@@ -113,6 +115,8 @@ async function quoteAmmSwap(
       minAmountOut: new BN(amountOut),
       maxAmountIn: out.maxAmountIn,
       priceImpact: out.priceImpact,
+      baseReserve,
+      quoteReserve,
     };
   }
 
@@ -127,7 +131,7 @@ async function quoteCpmmSwap(
   outputMint: string,
   amountIn?: string,
   amountOut?: string,
-  slippagePct?: number
+  slippagePct?: number,
 ): Promise<any> {
   let poolInfo: ApiV3PoolInfoStandardItemCpmm;
   let poolKeys: any;
@@ -166,7 +170,7 @@ async function quoteCpmmSwap(
       rpcData.configInfo!.creatorFeeRate,
       rpcData.configInfo!.protocolFeeRate,
       rpcData.configInfo!.fundFeeRate,
-      false
+      false,
     );
 
     // Apply slippage to output amount
@@ -185,6 +189,8 @@ async function quoteCpmmSwap(
       priceImpact: null, // CPMM doesn't provide price impact
       inputMint,
       outputMint,
+      baseReserve: rpcData.baseReserve,
+      quoteReserve: rpcData.quoteReserve,
     };
   } else if (amountOut) {
     // Exact output (swap base out)
@@ -210,7 +216,7 @@ async function quoteCpmmSwap(
       rpcData.configInfo!.creatorFeeRate,
       rpcData.configInfo!.protocolFeeRate,
       rpcData.configInfo!.fundFeeRate,
-      false
+      false,
     );
 
     // Apply slippage to input amount
@@ -229,6 +235,8 @@ async function quoteCpmmSwap(
       priceImpact: null, // CPMM doesn't provide price impact
       inputMint,
       outputMint,
+      baseReserve: rpcData.baseReserve,
+      quoteReserve: rpcData.quoteReserve,
     };
   }
 
@@ -243,13 +251,13 @@ export async function getRawSwapQuote(
   quoteToken: string,
   amount: number,
   side: 'BUY' | 'SELL',
-  slippagePct?: number
+  slippagePct?: number,
 ): Promise<any> {
   // Convert side to exactIn
   const exactIn = side === 'SELL';
 
   logger.info(
-    `getRawSwapQuote: poolId=${poolId}, baseToken=${baseToken}, quoteToken=${quoteToken}, amount=${amount}, side=${side}, exactIn=${exactIn}`
+    `getRawSwapQuote: poolId=${poolId}, baseToken=${baseToken}, quoteToken=${quoteToken}, amount=${amount}, side=${side}, exactIn=${exactIn}`,
   );
 
   // Get pool info to determine if it's AMM or CPMM
@@ -303,10 +311,10 @@ export async function getRawSwapQuote(
   }
 
   logger.info(
-    `Base token: ${resolvedBaseToken.symbol}, address=${resolvedBaseToken.address}, decimals=${resolvedBaseToken.decimals}`
+    `Base token: ${resolvedBaseToken.symbol}, address=${resolvedBaseToken.address}, decimals=${resolvedBaseToken.decimals}`,
   );
   logger.info(
-    `Quote token: ${resolvedQuoteToken.symbol}, address=${resolvedQuoteToken.address}, decimals=${resolvedQuoteToken.decimals}`
+    `Quote token: ${resolvedQuoteToken.symbol}, address=${resolvedQuoteToken.address}, decimals=${resolvedQuoteToken.decimals}`,
   );
 
   const baseTokenAddress = resolvedBaseToken.address;
@@ -351,7 +359,7 @@ export async function getRawSwapQuote(
       outputToken.address,
       amountInWithDecimals,
       amountOutWithDecimals,
-      slippagePct
+      slippagePct,
     );
   } else if (ammPoolInfo.poolType === 'cpmm') {
     result = await quoteCpmmSwap(
@@ -362,7 +370,7 @@ export async function getRawSwapQuote(
       outputToken.address,
       amountInWithDecimals,
       amountOutWithDecimals,
-      slippagePct
+      slippagePct,
     );
   } else {
     throw new Error(`Unsupported pool type: ${ammPoolInfo.poolType}`);
@@ -371,7 +379,7 @@ export async function getRawSwapQuote(
   logger.info(
     `Raw quote result: amountIn=${result.amountIn.toString()}, amountOut=${result.amountOut.toString()}, inputMint=${
       result.inputMint
-    }, outputMint=${result.outputMint}`
+    }, outputMint=${result.outputMint}`,
   );
 
   // Add price calculation
@@ -381,12 +389,14 @@ export async function getRawSwapQuote(
       : result.amountIn.toString() / result.amountOut.toString();
 
   // Precise price impact (before vs after reserves)
-  const baseIsMintA = result.poolInfo.baseTokenAddress === result.poolInfo.mintA.address;
+  // Use ammPoolInfo.baseTokenAddress since poolInfo from SDK doesn't have this field
+  const baseIsMintA = ammPoolInfo.baseTokenAddress === result.poolInfo.mintA.address;
   const baseDecimals = baseIsMintA ? result.poolInfo.mintA.decimals : result.poolInfo.mintB.decimals;
   const quoteDecimals = baseIsMintA ? result.poolInfo.mintB.decimals : result.poolInfo.mintA.decimals;
 
-  const baseReserveBefore = new Decimal(result.poolInfo.baseReserve.toString()).div(10 ** baseDecimals);
-  const quoteReserveBefore = new Decimal(result.poolInfo.quoteReserve.toString()).div(10 ** quoteDecimals);
+  // baseReserve and quoteReserve are now at result level, not result.poolInfo
+  const baseReserveBefore = new Decimal(result.baseReserve.toString()).div(10 ** baseDecimals);
+  const quoteReserveBefore = new Decimal(result.quoteReserve.toString()).div(10 ** quoteDecimals);
 
   let baseReserveAfter = baseReserveBefore;
   let quoteReserveAfter = quoteReserveBefore;
@@ -429,10 +439,10 @@ async function formatSwapQuote(
   quoteToken: string,
   amount: number,
   side: 'BUY' | 'SELL',
-  slippagePct?: number
+  slippagePct?: number,
 ): Promise<QuoteSwapResponseType> {
   logger.info(
-    `formatSwapQuote: poolAddress=${poolAddress}, baseToken=${baseToken}, quoteToken=${quoteToken}, amount=${amount}, side=${side}`
+    `formatSwapQuote: poolAddress=${poolAddress}, baseToken=${baseToken}, quoteToken=${quoteToken}, amount=${amount}, side=${side}`,
   );
 
   const raydium = await Raydium.getInstance(network);
@@ -447,10 +457,10 @@ async function formatSwapQuote(
   }
 
   logger.info(
-    `Resolved base token: ${resolvedBaseToken.symbol}, address=${resolvedBaseToken.address}, decimals=${resolvedBaseToken.decimals}`
+    `Resolved base token: ${resolvedBaseToken.symbol}, address=${resolvedBaseToken.address}, decimals=${resolvedBaseToken.decimals}`,
   );
   logger.info(
-    `Resolved quote token: ${resolvedQuoteToken.symbol}, address=${resolvedQuoteToken.address}, decimals=${resolvedQuoteToken.decimals}`
+    `Resolved quote token: ${resolvedQuoteToken.symbol}, address=${resolvedQuoteToken.address}, decimals=${resolvedQuoteToken.decimals}`,
   );
 
   // Get pool info
@@ -460,7 +470,7 @@ async function formatSwapQuote(
   }
 
   logger.info(
-    `Pool info: type=${poolInfo.poolType}, baseToken=${poolInfo.baseTokenAddress}, quoteToken=${poolInfo.quoteTokenAddress}`
+    `Pool info: type=${poolInfo.poolType}, baseToken=${poolInfo.baseTokenAddress}, quoteToken=${poolInfo.quoteTokenAddress}`,
   );
 
   const quote = await getRawSwapQuote(
@@ -471,7 +481,7 @@ async function formatSwapQuote(
     quoteToken,
     amount,
     side as 'BUY' | 'SELL',
-    slippagePct
+    slippagePct,
   );
 
   logger.info(`Quote result: amountIn=${quote.amountIn.toString()}, amountOut=${quote.amountOut.toString()}`);
@@ -492,7 +502,7 @@ async function formatSwapQuote(
   const maxAmountIn = new Decimal(quote.maxAmountIn.toString()).div(10 ** inputToken.decimals).toNumber();
 
   logger.info(
-    `Converted amounts: estimatedAmountIn=${estimatedAmountIn}, estimatedAmountOut=${estimatedAmountOut}, minAmountOut=${minAmountOut}, maxAmountIn=${maxAmountIn}`
+    `Converted amounts: estimatedAmountIn=${estimatedAmountIn}, estimatedAmountOut=${estimatedAmountOut}, minAmountOut=${minAmountOut}, maxAmountIn=${maxAmountIn}`,
   );
 
   // Calculate balance changes correctly based on which tokens are being swapped
@@ -500,7 +510,7 @@ async function formatSwapQuote(
   const quoteTokenBalanceChange = side === 'BUY' ? -estimatedAmountIn : estimatedAmountOut;
 
   logger.info(
-    `Balance changes: baseTokenBalanceChange=${baseTokenBalanceChange}, quoteTokenBalanceChange=${quoteTokenBalanceChange}`
+    `Balance changes: baseTokenBalanceChange=${baseTokenBalanceChange}, quoteTokenBalanceChange=${quoteTokenBalanceChange}`,
   );
 
   // Add price calculation
@@ -590,13 +600,13 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                 amount,
                 side as 'BUY' | 'SELL',
                 poolAddress,
-                slippagePct
+                slippagePct,
               );
             }
           } catch (e) {
             // If pool lookup fails (API timeout/RPC issue), proceed with AMM path instead of aborting.
             logger.warn(
-              `Pool type detection failed for ${poolAddress}, continuing with AMM path: ${(e as Error).message}`
+              `Pool type detection failed for ${poolAddress}, continuing with AMM path: ${(e as Error).message}`,
             );
           }
         }
@@ -619,7 +629,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
 
           if (!baseTokenInfo || !quoteTokenInfo) {
             throw fastify.httpErrors.badRequest(
-              sanitizeErrorMessage('Token not found: {}', !baseTokenInfo ? baseToken : quoteToken)
+              sanitizeErrorMessage('Token not found: {}', !baseTokenInfo ? baseToken : quoteToken),
             );
           }
 
@@ -632,12 +642,12 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
             networkToUse,
             'amm',
             baseTokenInfo.symbol,
-            quoteTokenInfo.symbol
+            quoteTokenInfo.symbol,
           );
 
           if (!pool) {
             throw fastify.httpErrors.notFound(
-              `No AMM pool found for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol} on Raydium`
+              `No AMM pool found for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol} on Raydium`,
             );
           }
 
@@ -653,7 +663,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
           quoteToken,
           amount,
           side as 'BUY' | 'SELL',
-          slippagePct
+          slippagePct,
         );
 
         let gasEstimation = null;
@@ -667,7 +677,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
       } catch (e) {
         throw mapSwapError(fastify, e, errContext);
       }
-    }
+    },
   );
 };
 
