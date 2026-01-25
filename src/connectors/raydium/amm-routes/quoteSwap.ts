@@ -391,8 +391,8 @@ export async function getRawSwapQuote(
       : result.amountIn.toString() / result.amountOut.toString();
 
   // Precise price impact (before vs after reserves)
-  // Use ammPoolInfo.baseTokenAddress since poolInfo from SDK doesn't have this field
-  const baseIsMintA = ammPoolInfo.baseTokenAddress === result.poolInfo.mintA.address;
+  // Use resolvedBaseToken.address (trading base) to determine mapping, NOT ammPoolInfo.baseTokenAddress (pool's mintA)
+  const baseIsMintA = resolvedBaseToken.address === result.poolInfo.mintA.address;
   const baseDecimals = baseIsMintA ? result.poolInfo.mintA.decimals : result.poolInfo.mintB.decimals;
   const quoteDecimals = baseIsMintA ? result.poolInfo.mintB.decimals : result.poolInfo.mintA.decimals;
 
