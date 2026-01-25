@@ -367,6 +367,20 @@ export async function getRawSwapQuote(
     throw new Error(`Unsupported pool type: ${ammPoolInfo.poolType}`);
   }
 
+  const normalizedAmountIn = (result as any)?.amountIn ?? (result as any)?.maxAmountIn;
+  const normalizedAmountOut = (result as any)?.amountOut ?? (result as any)?.minAmountOut;
+
+  if (!normalizedAmountIn || !normalizedAmountOut) {
+    logger.error(
+      `[quote-swap] Missing amountIn/amountOut from Raydium quote | poolId=${poolId} side=${side} ` +
+        `amountIn=${normalizedAmountIn} amountOut=${normalizedAmountOut} rawKeys=${Object.keys(result ?? {}).join(',')}`,
+    );
+    throw new Error('Raydium quote returned missing amountIn/amountOut');
+  }
+
+  result.amountIn = normalizedAmountIn;
+  result.amountOut = normalizedAmountOut;
+
   logger.info(
     `Raw quote result: amountIn=${result.amountIn.toString()}, amountOut=${result.amountOut.toString()}, inputMint=${
       result.inputMint
@@ -379,43 +393,49 @@ export async function getRawSwapQuote(
       ? result.amountOut.toString() / result.amountIn.toString()
       : result.amountIn.toString() / result.amountOut.toString();
 
-  // Precise price impact (before vs after reserves)
-  // Use resolvedBaseToken.address (trading base) to determine mapping, NOT ammPoolInfo.baseTokenAddress (pool's mintA)
-  const baseIsMintA = resolvedBaseToken.address === result.poolInfo.mintA.address;
-  const baseDecimals = baseIsMintA ? result.poolInfo.mintA.decimals : result.poolInfo.mintB.decimals;
-  const quoteDecimals = baseIsMintA ? result.poolInfo.mintB.decimals : result.poolInfo.mintA.decimals;
+  let priceImpactPct = 0;
+  let afterPrice: Decimal | undefined;
+  if (result.baseReserve && result.quoteReserve && result.poolInfo?.mintA && result.poolInfo?.mintB) {
+    // Precise price impact (before vs after reserves)
+    // Use resolvedBaseToken.address (trading base) to determine mapping, NOT ammPoolInfo.baseTokenAddress (pool's mintA)
+    const baseIsMintA = resolvedBaseToken.address === result.poolInfo.mintA.address;
+    const baseDecimals = baseIsMintA ? result.poolInfo.mintA.decimals : result.poolInfo.mintB.decimals;
+    const quoteDecimals = baseIsMintA ? result.poolInfo.mintB.decimals : result.poolInfo.mintA.decimals;
 
-  // baseReserve and quoteReserve from SDK correspond to mintA and mintB respectively.
-  // We need to swap them if our trading "base" token is mintB (not mintA).
-  const baseReserveBefore = baseIsMintA
-    ? new Decimal(result.baseReserve.toString()).div(10 ** baseDecimals)
-    : new Decimal(result.quoteReserve.toString()).div(10 ** baseDecimals);
-  const quoteReserveBefore = baseIsMintA
-    ? new Decimal(result.quoteReserve.toString()).div(10 ** quoteDecimals)
-    : new Decimal(result.baseReserve.toString()).div(10 ** quoteDecimals);
+    // baseReserve and quoteReserve from SDK correspond to mintA and mintB respectively.
+    // We need to swap them if our trading "base" token is mintB (not mintA).
+    const baseReserveBefore = baseIsMintA
+      ? new Decimal(result.baseReserve.toString()).div(10 ** baseDecimals)
+      : new Decimal(result.quoteReserve.toString()).div(10 ** baseDecimals);
+    const quoteReserveBefore = baseIsMintA
+      ? new Decimal(result.quoteReserve.toString()).div(10 ** quoteDecimals)
+      : new Decimal(result.baseReserve.toString()).div(10 ** quoteDecimals);
 
-  let baseReserveAfter = baseReserveBefore;
-  let quoteReserveAfter = quoteReserveBefore;
+    let baseReserveAfter = baseReserveBefore;
+    let quoteReserveAfter = quoteReserveBefore;
 
-  if (side === 'SELL') {
-    // input = base, output = quote
-    const amountInBase = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
-    const amountOutQuote = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
-    baseReserveAfter = baseReserveBefore.add(amountInBase);
-    quoteReserveAfter = quoteReserveBefore.sub(amountOutQuote);
+    if (side === 'SELL') {
+      // input = base, output = quote
+      const amountInBase = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
+      const amountOutQuote = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
+      baseReserveAfter = baseReserveBefore.add(amountInBase);
+      quoteReserveAfter = quoteReserveBefore.sub(amountOutQuote);
+    } else {
+      // input = quote, output = base
+      const amountInQuote = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
+      const amountOutBase = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
+      baseReserveAfter = baseReserveBefore.sub(amountOutBase);
+      quoteReserveAfter = quoteReserveBefore.add(amountInQuote);
+    }
+
+    const beforePrice = quoteReserveBefore.eq(0) ? new Decimal(0) : baseReserveBefore.div(quoteReserveBefore);
+    afterPrice = quoteReserveAfter.eq(0) ? new Decimal(0) : baseReserveAfter.div(quoteReserveAfter);
+    priceImpactPct = beforePrice.gt(0) ? beforePrice.minus(afterPrice).abs().div(beforePrice).mul(100).toNumber() : 0;
   } else {
-    // input = quote, output = base
-    const amountInQuote = new Decimal(result.amountIn.toString()).div(10 ** inputToken.decimals);
-    const amountOutBase = new Decimal(result.amountOut.toString()).div(10 ** outputToken.decimals);
-    baseReserveAfter = baseReserveBefore.sub(amountOutBase);
-    quoteReserveAfter = quoteReserveBefore.add(amountInQuote);
+    logger.warn(
+      `[quote-swap] Skipping priceImpact calculation due to missing reserves | poolId=${poolId} side=${side}`,
+    );
   }
-
-  const beforePrice = quoteReserveBefore.eq(0) ? new Decimal(0) : baseReserveBefore.div(quoteReserveBefore);
-  const afterPrice = quoteReserveAfter.eq(0) ? new Decimal(0) : baseReserveAfter.div(quoteReserveAfter);
-  const priceImpactPct = beforePrice.gt(0)
-    ? beforePrice.minus(afterPrice).abs().div(beforePrice).mul(100).toNumber()
-    : 0;
 
   return {
     ...result,
