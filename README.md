@@ -6,9 +6,7 @@
 ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║
  ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝
 ```
-node dist/index.js --passphrase\=12121212 --dev
-pnpm build && pnpm start --passphrase\=12121212 --dev
-pnpm start --passphrase\=12121212 --dev
+
 # Hummingbot Gateway
 
 ## Introduction
@@ -22,11 +20,7 @@ Gateway can be accessed through:
 ### Key Features
 - **Standardized REST API**: Consistent endpoints for interacting with blockchains (Ethereum, Solana) and DEXs (Uniswap, Jupiter, Raydium, Meteora, 0x, Pancakeswap)
 - **Three Trading Types**: Router (DEX aggregators), AMM (V2-style pools), and CLMM (V3-style concentrated liquidity)
-- **Modular Architecture**: Clear separation of concerns with distinct modules for chains, connectors, configuration, and wallet management
-- **TypeScript-based**: Leverages the TypeScript ecosystem and popular libraries like Fastify, Ethers.js, and Solana/web3.js
-- **Security**: Built-in rate limiting (100 requests/minute) to prevent DoS attacks
-- **Extensible**: Easily extended with new chains and connectors
-
+- **Modular Architecture**: Clear separation of concerns with distinct modules for chains, connectors, configuration,
 ### Core Technologies
 - **Backend**: Node.js, TypeScript, Fastify
 - **Blockchain Interaction**: Ethers.js (Ethereum), @solana/web3.js (Solana)
